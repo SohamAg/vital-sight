@@ -1,24 +1,16 @@
-from edge.detector import VitalSightDetector
-import argparse
+import argparse, yaml
+from edge.detector_v2 import VitalSightV2
 
 def main():
-    parser = argparse.ArgumentParser(description="VitalSight Detection System")
-    parser.add_argument("--source", type=str, default="0",
-                        help="Path to video file or webcam index (default 0)")
-    parser.add_argument("--model", type=str, default="yolov8n.pt",
-                        help="Path to YOLO model")
-    parser.add_argument("--no-display", action="store_true",
-                        help="Disable visualization window")
-    parser.add_argument("--save", action="store_true",
-                        help="Save annotated video")
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--source", type=str, default="0", help="0 for webcam or path to video")
+    ap.add_argument("--config", type=str, default="config.yaml")
+    ap.add_argument("--no-display", action="store_true")
+    args = ap.parse_args()
 
+    vs = VitalSightV2(cfg_path=args.config)
     source = 0 if args.source == "0" else args.source
-
-    detector = VitalSightDetector(model_path=args.model)
-    detector.process_video(source=source,
-                           display=not args.no_display,
-                           save_output=args.save)
+    vs.process(source=source, display=not args.no_display)
 
 if __name__ == "__main__":
     main()

@@ -1,11 +1,18 @@
 yolo:
-  model: yolov8n.pt
+  model: yolo11n.pt         # <-- switched to YOLO11
   conf: 0.35
   iou: 0.6
-  classes: [0]   # person only for now; add others if you need (COCO IDs)
+  classes: [0]
+
+pose:
+  enabled: true
+  backend: yolo11n-pose     # <-- switched to YOLO11 pose
+  max_people: 2
+  min_box_area_frac: 0.02
+  min_aspect: 1.1
 
 runtime:
-  device: auto          # auto|cuda|cpu
+  device: cuda          # auto|cuda|cpu
   input_size: 640
   show_fps: true
 
@@ -13,35 +20,51 @@ profile: webcam         # webcam|cctv
 
 logic:
   fall:
-    v_drop: 0.12        # normalized vertical speed threshold
-    still_s: 3.0
-    debounce_f: 12
-  immobility:
-    duration_s: 25      # 25s for webcam; set 120 for CCTV
-    jitter_eps: 2.0
+    v_drop: 0.05        # normalized vertical speed threshold
+    width_height_ratio: 1.8
+    instant_drop: 0.06
+    horizontal_gain: 0.4
+    w_drop: 0.35
+    w_instant: 0.25
+    w_orient: 0.15
+    w_horizontal: 0.15
+    w_posture: 0.1
+    debounce_f: 5
   resp:
     window_s: 18
     rr_min: 8
     rr_max: 30
     irregularity_thr: 0.35
     hand_chest_px: 45
+    w_hands: 0.6
+    w_hands_close: 0.25
+    w_torso: 0.15
+    debounce_f: 5
   violence:
     prox_px: 80
-    flow_mag: 14.0
-    debounce_f: 10
+    flow_mag: 8.0
+    crowd_count: 3
+    debounce_f: 6
   fire:
-    hsv_ratio: 0.025
-    persist_f: 8
-
-pose:
-  enabled: true
-  backend: yolov8n-pose   # yolov8n-pose|mediapipe
-  max_people: 2
-  min_box_area_frac: 0.02 # 2% of frame (use 0.08 for webcam close-up)
+    hsv_ratio: 0.015
+    persist_f: 5
+    sat_min: 90
+    val_min: 140
+    person_margin: 6
+    median_blur: 3
+    morph_kernel: 3
+    boost: 1.2
+  severe_injury:
+    motion_eps: 8.0
+    lying_min: 0.4
+    w_lying: 0.45
+    w_distress: 0.3
+    w_still: 0.25
+    debounce_f: 10
 
 hysteresis:
-  enter: 0.55
-  exit: 0.35
+  enter: 0.45
+  exit: 0.30
 
 cooldowns:
   per_camera_s: 45
