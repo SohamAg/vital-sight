@@ -14,19 +14,21 @@ class GeminiReporter:
     Handles sending frames to Google Gemini VLM for detailed situation analysis.
     """
     
-    def __init__(self, api_key, reports_dir="data/demo_reports"):
+    def __init__(self, api_key, reports_dir="data/demo_reports", notification_service=None):
         """
         Initialize the Gemini reporter.
         
         Args:
             api_key: Google Gemini API key
             reports_dir: Directory to save generated reports
+            notification_service: Optional NotificationService for voice alerts
         """
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
         self.reports_dir = Path(reports_dir)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.active_threads = []  # Track background report generation threads
+        self.notification_service = notification_service  # Voice call notifications
         
         # Map detection categories to readable names
         self.category_names = {
@@ -239,6 +241,19 @@ Provide your detailed emergency response report now."""
                 f.write("\n" + "=" * 80 + "\n")
             
             print(f"[GEMINI] ✓ Report saved to: {report_path}")
+            
+            # Send voice call notification for CRITICAL situations
+            if self.notification_service:
+                print(f"[NOTIFICATION] Checking if voice alert needed for {category}...")
+                notification_result = self.notification_service.send_alert(
+                    category=category,
+                    report_text=report_text,
+                    source_path=source_path
+                )
+                if notification_result.get('call'):
+                    print(f"[NOTIFICATION] ✓ Voice call initiated: {notification_result.get('call_sid')}")
+                else:
+                    print(f"[NOTIFICATION] Voice call not needed: {notification_result.get('reason', 'N/A')}")
             
             # Clean up uploaded file from Gemini
             try:

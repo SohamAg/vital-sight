@@ -17,6 +17,7 @@ from functools import wraps
 # Try to import VitalSightV2, but make it optional for web serving
 try:
     from edge.detector_v2 import VitalSightV2
+    from edge.notifications import NotificationService
     DETECTION_AVAILABLE = True
 except ImportError as e:
     print(f"[WARNING] Detection not available: {e}")
@@ -50,6 +51,24 @@ PROCESSED_DIR = Path("data/processed")
 REPORTS_DIR = Path("data/demo_reports")
 UPLOAD_DIR = Path("data/uploads")
 GEMINI_KEY = "AIzaSyDPE3QNZqVino7KJvFDeZ_nfYcQ627FcMo"
+
+# Notification Service Configuration
+NOTIFICATION_CONFIG = {
+    'twilio_account_sid': os.environ.get('TWILIO_ACCOUNT_SID', 'AC9482d7139f9d9056cbdf9159f02052db'),
+    'twilio_auth_token': os.environ.get('TWILIO_AUTH_TOKEN', '5c9fd678f6689941e0cebcae6cebac35'),
+    'twilio_phone_number': os.environ.get('TWILIO_PHONE_NUMBER', '+18663508040'),
+    'alert_phone_number': os.environ.get('ALERT_PHONE_NUMBER', '+19297602752'),
+    'elevenlabs_api_key': os.environ.get('ELEVENLABS_API_KEY', 'sk_a6abdc87464e5c00d90059b302746c55d005dbe8d29c79df')
+}
+
+# Initialize notification service
+notification_service = None
+if DETECTION_AVAILABLE:
+    try:
+        notification_service = NotificationService(**NOTIFICATION_CONFIG)
+        print("[INFO] Notification service initialized for voice alerts")
+    except Exception as e:
+        print(f"[WARNING] Could not initialize notification service: {e}")
 
 # Create directories if they don't exist
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -271,6 +290,11 @@ def upload_video():
             # Initialize detector
             detector = VitalSightV2(cfg_path="config.yaml", gemini_api_key=GEMINI_KEY)
             detector.source_path = str(upload_path)
+            
+            # Attach notification service to Gemini reporter for voice alerts
+            if notification_service and detector.gemini_reporter:
+                detector.gemini_reporter.notification_service = notification_service
+                print("[INFO] Voice call alerts enabled for CRITICAL detections")
             
             # Determine output path
             output_name = Path(filename).stem
