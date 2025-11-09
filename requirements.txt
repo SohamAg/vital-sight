@@ -1,33 +1,35 @@
-# --- Core deep learning stack (CUDA 12.x build) ---
-torch
-torchvision
-torchaudio
+# VitalSight - Context-Aware Environment System
+# Production-ready dependencies for emergency detection and monitoring
 
-# --- YOLO 11 (Ultralytics) ---
-ultralytics>=8.3.30
+# === Core Deep Learning Stack ===
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
 
-# --- Computer vision and math ---
-opencv-python
-numpy
-scikit-image
-tqdm
-pyyaml
+# === Computer Vision & Detection ===
+ultralytics>=8.3.30          # YOLO 11 object detection
+opencv-python>=4.8.0         # Video processing and real-time analysis
+mediapipe>=0.10.0            # Pose estimation for fall/distress detection
 
-# --- Pose estimation ---
-mediapipe
+# === Mathematical Operations ===
+numpy>=1.24.0
+scikit-image>=0.21.0
 
-# --- AI/VLM reporting ---
-google-generativeai
+# === Configuration & Utilities ===
+pyyaml>=6.0
+tqdm>=4.65.0
 
-# --- Web Dashboard ---
-flask
+# === AI Vision Language Model ===
+google-generativeai>=0.3.0   # Gemini 2.0 Flash for situation analysis
 
-# --- Twilio Alerts ---
-twilio
+# === Web Dashboard & UI ===
+flask>=3.0.0                 # Web application backend
+markdown>=3.5.0              # Report rendering
 
-# --- ElevenLabs Text-to-Speech ---
-elevenlabs
+# === Notifications & Alerts ===
+twilio>=8.0.0                # SMS and voice call notifications
+elevenlabs>=1.0.0            # Natural voice synthesis for alerts
 
-# --- Optional: future extensions (comment out if not needed) ---
-# requests         # for HTTP event emitters or alerts
-# elevenlabs       # if you use ElevenLabs TTS
+# === Optional: future extensions (comment out if not needed) ===
+# sendgrid>=6.10.0           # Email notifications
+# requests>=2.31.0           # HTTP event emitters or alerts

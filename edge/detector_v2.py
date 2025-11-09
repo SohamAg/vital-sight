@@ -563,7 +563,106 @@ class VitalSightV2:
         
         return float(min(1.0, score))
 
-    def process(self, source=0, display=True, save_output=False, output_path=None):
+    def _process_detections(self, detect_results, pose_results, frame):
+        """
+        Process detection results and trigger Gemini reporting when needed.
+        This is a helper method for external video processing (e.g., web upload streaming).
+        
+        Args:
+            detect_results: YOLO detection results object
+            pose_results: YOLO pose estimation results object
+            frame: Original frame (numpy array)
+        """
+        # Extract person boxes from detection results
+        person_boxes = []
+        if detect_results and hasattr(detect_results, 'boxes') and detect_results.boxes is not None:
+            boxes = detect_results.boxes
+            if len(boxes) > 0:
+                for i, box in enumerate(boxes):
+                    cls_id = int(box.cls[0])
+                    if cls_id == 0:  # person class in COCO
+                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                        person_boxes.append((int(x1), int(y1), int(x2), int(y2)))
+        
+        # Extract pose features
+        kp_map = {}
+        pose_feats = []
+        if self.pose_enabled and person_boxes and pose_results:
+            h_frame, w_frame = frame.shape[:2]
+            areas = [max(1.0, (x2 - x1) * (y2 - y1)) for (x1, y1, x2, y2) in person_boxes]
+            idxs = np.argsort(areas)[::-1][:self.pose_max_people]
+            sel = []
+            for i in idxs:
+                x1, y1, x2, y2 = person_boxes[i]
+                area_frac = areas[i] / float(w_frame * h_frame)
+                if area_frac >= self.min_box_area_frac:
+                    sel.append(person_boxes[i])
+            if sel:
+                kp_map = self.pose_est.infer(frame, sel)
+                for k in kp_map.values():
+                    from .pose import keypose_feats
+                    feats = keypose_feats(k)
+                    pose_feats.append(feats)
+        
+        pose_stats = self._pose_stats(pose_feats)
+        
+        # Compute motion score (simplified since we don't have history)
+        centers = self._centers(person_boxes)
+        motion_value = 0.0
+        
+        # Basic detection scoring
+        scores = {
+            "fall": 0.0,
+            "distress": 0.0,
+            "violence_panic": 0.0,
+            "fire": 0.0,
+            "severe_injury": 0.0
+        }
+        
+        # Fall detection
+        if pose_stats["avg_keypose_height"] < 0.3 and len(person_boxes) > 0:
+            scores["fall"] = min(1.0, 1.5 - pose_stats["avg_keypose_height"])
+        
+        # Distress detection (rapid motion + specific pose)
+        if motion_value > 15 and pose_stats["sum_arm_up"] > 0:
+            scores["distress"] = min(1.0, motion_value / 30.0)
+        
+        # Violence/panic detection (high crowd motion)
+        if len(person_boxes) > 2 and motion_value > 10:
+            scores["violence_panic"] = min(1.0, (len(person_boxes) * motion_value) / 100.0)
+        
+        # Update debouncing and check for active detections
+        active = []
+        for k, v in scores.items():
+            is_on, sm = self.db[k].update(v)
+            if is_on:
+                active.append((k, float(sm)))
+        
+        # Trigger Gemini reporting for first detections
+        if self.gemini_reporter and active:
+            for category, confidence in active:
+                if category not in self.first_detections:
+                    self.first_detections[category] = {
+                        "reported": False,
+                        "frame": frame.copy(),
+                        "confidence": confidence
+                    }
+                
+                if not self.first_detections[category]["reported"]:
+                    print(f"\n[FIRST DETECTION] {category} detected at confidence {confidence:.2%}")
+                    try:
+                        self.gemini_reporter.generate_report_async(
+                            self.first_detections[category]["frame"],
+                            category,
+                            confidence,
+                            self.source_path
+                        )
+                        self.first_detections[category]["reported"] = True
+                    except Exception as e:
+                        print(f"[ERROR] Failed to start report generation: {e}")
+                        self.first_detections[category]["reported"] = True
+    
+    def process(self, source=0, display=True, save_output=False, output_path=None, frame_callback=None):
         if isinstance(source, str) and source.isdigit():
             src_handle = int(source)
         else:
@@ -963,6 +1062,14 @@ class VitalSightV2:
             # Write frame to output video if enabled
             if video_writer is not None:
                 video_writer.write(annotated)
+            
+            # Call frame callback for live streaming (if provided)
+            if frame_callback is not None:
+                try:
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                    frame_callback(annotated, frame_id, total_frames)
+                except Exception as e:
+                    print(f"[WARNING] Frame callback error: {e}")
 
             if display:
                 cv2.imshow("VitalSight v2", annotated)

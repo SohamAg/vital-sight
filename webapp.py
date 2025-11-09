@@ -2,7 +2,7 @@
 VitalSight Web Dashboard
 Modern web interface for viewing processed videos and detection reports
 """
-from flask import Flask, render_template, jsonify, request, send_from_directory, Response
+from flask import Flask, render_template, jsonify, request, send_from_directory, Response, session, redirect, url_for
 from pathlib import Path
 import json
 import re
@@ -11,6 +11,8 @@ import os
 import cv2
 import threading
 import sys
+import markdown
+from functools import wraps
 
 # Try to import VitalSightV2, but make it optional for web serving
 try:
@@ -23,6 +25,25 @@ except ImportError as e:
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max file size
+app.secret_key = 'vitalsight_secret_key_2024'  # Change this in production
+
+# User credentials (local authentication)
+USERS = {
+    'sohamkagrawal@gmail.com': {
+        'password': 'vitalsight',
+        'name': 'Soham',
+        'email': 'sohamkagrawal@gmail.com'
+    }
+}
+
+# Login required decorator
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Configuration
 PROCESSED_DIR = Path("data/processed")
@@ -46,8 +67,12 @@ def get_severity_from_report(report_path):
             content = f.read()
             if "🔴 CRITICAL" in content:
                 return "CRITICAL"
-            elif "🟡 MEDIUM" in content:
+            elif "🟠 HIGH PRIORITY" in content:
+                return "HIGH"
+            elif "🟡 MEDIUM PRIORITY" in content:
                 return "MEDIUM"
+            elif "🟢 LOW PRIORITY" in content:
+                return "LOW"
     except:
         pass
     return None
@@ -69,6 +94,12 @@ def parse_report(report_path):
         situation_match = re.search(r'SITUATION REPORT:\n={80}\n\n(.+?)\n\n={80}', content, re.DOTALL)
         situation = situation_match.group(1).strip() if situation_match else "No situation report available"
         
+        # Convert situation report to HTML using markdown
+        situation_html = markdown.markdown(
+            situation,
+            extensions=['nl2br', 'sane_lists', 'tables']
+        )
+        
         # Extract notification protocol
         notification_method = re.search(r'Notification Method: (.+)', content)
         response_time = re.search(r'Expected Response Time: (.+)', content)
@@ -80,6 +111,7 @@ def parse_report(report_path):
             'timestamp': timestamp.group(1) if timestamp else "N/A",
             'frame': frame.group(1) if frame else None,
             'situation': situation,
+            'situation_html': situation_html,
             'notification_method': notification_method.group(1) if notification_method else "N/A",
             'response_time': response_time.group(1) if response_time else "N/A"
         }
@@ -87,9 +119,36 @@ def parse_report(report_path):
         print(f"Error parsing report: {e}")
         return None
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page"""
+    if 'user' in session:
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        
+        if email in USERS and USERS[email]['password'] == password:
+            session['user'] = USERS[email]
+            return redirect(url_for('index'))
+        else:
+            return render_template('login.html', error='Invalid email or password')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    """Logout"""
+    session.pop('user', None)
+    return redirect(url_for('login'))
+
 @app.route('/')
+@login_required
 def index():
     """Main grid view showing all processed videos"""
+    from flask import make_response
+    
     videos = sorted(list(PROCESSED_DIR.glob("*_processed.mp4")))
     video_data = []
     
@@ -118,9 +177,15 @@ def index():
             'report_count': len(reports)
         })
     
-    return render_template('grid.html', videos=video_data)
+    response = make_response(render_template('grid.html', videos=video_data))
+    # Prevent caching to always show latest videos
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/detail/<video_name>')
+@login_required
 def detail(video_name):
     """Video detail view with report"""
     video_path = PROCESSED_DIR / f"{video_name}_processed.mp4"
@@ -148,11 +213,13 @@ def detail(video_name):
                           reports=report_data)
 
 @app.route('/upload')
+@login_required
 def upload_page():
     """Upload interface"""
     return render_template('upload.html')
 
 @app.route('/webcam')
+@login_required
 def webcam_page():
     """Live webcam interface"""
     return render_template('webcam.html')
@@ -197,88 +264,74 @@ def upload_video():
     # Start processing in background thread
     def process_video_background():
         try:
+            import time
             processing_status[job_id]['status'] = 'processing'
-            processing_status[job_id]['message'] = 'Processing video...'
-            
-            # Open video to process frame by frame
-            cap = cv2.VideoCapture(str(upload_path))
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            frame_count = 0
+            processing_status[job_id]['message'] = 'Initializing detector...'
             
             # Initialize detector
             detector = VitalSightV2(cfg_path="config.yaml", gemini_api_key=GEMINI_KEY)
+            detector.source_path = str(upload_path)
             
-            # Set up video writer
+            # Determine output path
             output_name = Path(filename).stem
             output_path = PROCESSED_DIR / f"{output_name}_processed.mp4"
             
+            # Open video
+            cap = cv2.VideoCapture(str(upload_path))
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             
-            # Try H.264 codec for browser compatibility
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            video_writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+            processing_status[job_id]['total_frames'] = total_frames
+            processing_status[job_id]['processed_frames'] = 0
+            processing_status[job_id]['message'] = 'Running YOLO detection and pose estimation...'
             
-            # Process frame by frame for live streaming
-            detector.source_path = str(upload_path)
-            detector.first_detections = {}
+            # Define frame callback for live streaming
+            def stream_frame(annotated_frame, frame_num, total):
+                """Callback function to stream frames during processing"""
+                try:
+                    # Update progress
+                    processing_status[job_id]['processed_frames'] = frame_num
+                    if total > 0:
+                        processing_status[job_id]['progress'] = int((frame_num / total) * 90)  # Up to 90%, reserve 10% for reports
+                    
+                    # Encode frame for streaming (downsample for faster streaming)
+                    h, w = annotated_frame.shape[:2]
+                    max_width = 960  # Stream at lower resolution for speed
+                    if w > max_width:
+                        scale = max_width / w
+                        new_w = max_width
+                        new_h = int(h * scale)
+                        stream_frame_resized = cv2.resize(annotated_frame, (new_w, new_h))
+                    else:
+                        stream_frame_resized = annotated_frame
+                    
+                    # Encode to JPEG
+                    ret, buffer = cv2.imencode('.jpg', stream_frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    if ret:
+                        live_frames[job_id] = buffer.tobytes()
+                except Exception as e:
+                    print(f"[WARNING] Stream frame error: {e}")
             
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                frame_count += 1
-                
-                # Process single frame through detector
-                results = detector.detect_model.track(frame, persist=True, verbose=False)
-                pose_results = detector.pose_model(frame, verbose=False)
-                
-                # Run situation detection (simplified)
-                active = detector._analyze_situations(results, pose_results, frame)
-                
-                # Annotate frame
-                annotated = frame.copy()
-                if results and len(results) > 0:
-                    annotated = results[0].plot()
-                
-                # Add detection labels
-                if active:
-                    for i, (category, conf) in enumerate(active):
-                        cat_display = detector.situation_names.get(category, category)
-                        label = f"{cat_display}: {conf:.1%}"
-                        cv2.putText(annotated, label, (10, 30 + i*30),
-                                  cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
-                
-                # Write to output file
-                video_writer.write(annotated)
-                
-                # Update live frame for streaming
-                _, buffer = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                live_frames[job_id] = buffer.tobytes()
-                
-                # Update progress
-                progress = int((frame_count / total_frames) * 100)
-                processing_status[job_id]['progress'] = progress
-                processing_status[job_id]['message'] = f'Processing: {frame_count}/{total_frames} frames'
+            # Process video with live streaming callback
+            print(f"[INFO] Processing {filename} with VitalSight...")
+            detector.process(
+                source=str(upload_path),
+                display=False,
+                save_output=True,
+                output_path=str(output_path),
+                frame_callback=stream_frame  # Enable live streaming!
+            )
             
-            cap.release()
-            video_writer.release()
+            print(f"[INFO] Processing complete for {filename}")
+            processing_status[job_id]['processed_frames'] = total_frames
             
-            # Generate reports if detections were made
-            if detector.gemini_reporter and detector.first_detections:
-                processing_status[job_id]['message'] = 'Generating AI reports...'
-                for category, detection_data in detector.first_detections.items():
-                    if not detection_data["reported"]:
-                        detector.gemini_reporter.generate_report_async(
-                            detection_data["frame"],
-                            category,
-                            detection_data["confidence"],
-                            str(upload_path)
-                        )
-                        detection_data["reported"] = True
-                
+            processing_status[job_id]['message'] = 'Generating AI reports...'
+            processing_status[job_id]['progress'] = 98
+            
+            # Wait for Gemini reports if any
+            if detector.gemini_reporter:
                 detector.gemini_reporter.wait_for_all_reports()
             
             processing_status[job_id]['status'] = 'completed'
@@ -286,16 +339,14 @@ def upload_video():
             processing_status[job_id]['message'] = 'Processing complete!'
             processing_status[job_id]['output_name'] = output_name
             
-            # Clean up live frame
-            if job_id in live_frames:
-                del live_frames[job_id]
+            # Processing complete
+            time.sleep(0.5)
             
         except Exception as e:
             import traceback
             processing_status[job_id]['status'] = 'failed'
             processing_status[job_id]['message'] = f'Error: {str(e)}'
             print(f"[ERROR] Processing failed: {traceback.format_exc()}")
-            
             if job_id in live_frames:
                 del live_frames[job_id]
     
@@ -342,6 +393,10 @@ def stream_processing(job_id):
                 break
             
             time.sleep(0.033)  # ~30 FPS
+        
+        # Clean up after stream ends
+        if job_id in live_frames:
+            del live_frames[job_id]
     
     return Response(generate(), 
                    mimetype='multipart/x-mixed-replace; boundary=frame')

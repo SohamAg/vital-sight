@@ -63,23 +63,32 @@
             <p class="text-gray-400" id="statusMessage">Initializing VitalSight detection</p>
         </div>
         
-        <!-- Live Processing Video Feed -->
+        <!-- Live Video Stream -->
         <div class="mb-6">
-            <div class="relative rounded-lg overflow-hidden bg-black border-2 border-primary/30" 
+            <div class="relative rounded-lg overflow-hidden bg-gray-900 border-2 border-primary/30" 
                  style="aspect-ratio: 16/9;">
                 <img id="liveStream" 
+                     src="" 
                      class="w-full h-full object-contain"
-                     alt="Live processing feed">
-                <div id="streamPlaceholder" class="absolute inset-0 flex items-center justify-center">
+                     alt="Live Processing Stream"
+                     style="display: none;">
+                <div id="streamLoading" class="absolute inset-0 flex items-center justify-center">
                     <div class="text-center">
-                        <div class="animate-spin text-6xl mb-4">⚙️</div>
-                        <p class="text-gray-400">Waiting for video stream...</p>
+                        <div class="animate-spin text-8xl mb-6">⚙️</div>
+                        <p class="text-2xl font-bold text-primary mb-2">Initializing Stream...</p>
+                        <p class="text-gray-400">Preparing video for detection...</p>
                     </div>
                 </div>
             </div>
-            <p class="text-sm text-center text-gray-500 mt-2">
-                🔴 LIVE: Real-time detection processing
-            </p>
+            <div class="flex items-center justify-between mt-2">
+                <p class="text-sm text-gray-500">
+                    <span id="streamStatus" class="inline-flex items-center gap-1">
+                        <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                        Live Processing
+                    </span>
+                </p>
+                <p class="text-sm text-gray-400" id="frameCounter">Frame: 0 / 0</p>
+            </div>
         </div>
         
         <!-- Progress Bar -->
@@ -237,9 +246,6 @@
                 updateStep('step1', '✅', 'text-success');
                 updateStep('step2', '⏳', 'text-primary');
                 
-                // Start live stream
-                startLiveStream();
-                
                 // Poll for status
                 pollStatus();
             } else {
@@ -250,28 +256,7 @@
         }
     }
     
-    function startLiveStream() {
-        if (!jobId) return;
-        
-        const streamImg = document.getElementById('liveStream');
-        const placeholder = document.getElementById('streamPlaceholder');
-        
-        // Set stream source
-        streamImg.src = `/api/stream/${jobId}`;
-        
-        // Hide placeholder once stream loads
-        streamImg.onload = () => {
-            placeholder.classList.add('hidden');
-        };
-        
-        // Handle stream errors gracefully
-        streamImg.onerror = () => {
-            console.log('Stream not yet available, retrying...');
-            setTimeout(() => {
-                streamImg.src = `/api/stream/${jobId}?t=${Date.now()}`;
-            }, 500);
-        };
-    }
+    let streamStarted = false;
     
     async function pollStatus() {
         if (!jobId) return;
@@ -284,16 +269,28 @@
             if (data.status === 'processing') {
                 updateStep('step2', '✓', 'text-success');
                 updateStep('step3', '⏳', 'text-primary');
+                updateStep('step4', '⏳', 'text-primary');
                 document.getElementById('statusMessage').textContent = data.message;
                 
-                // Update progress bar if available
-                if (data.progress !== undefined) {
-                    document.getElementById('progressBar').style.width = data.progress + '%';
-                    document.getElementById('progressPercent').textContent = data.progress + '%';
+                // Start live stream if not already started
+                if (!streamStarted) {
+                    startLiveStream();
+                    streamStarted = true;
+                }
+                
+                // Update progress bar
+                const progress = data.progress || 0;
+                document.getElementById('progressBar').style.width = `${progress}%`;
+                document.getElementById('progressPercent').textContent = `${progress}%`;
+                
+                // Update frame counter
+                if (data.processed_frames && data.total_frames) {
+                    document.getElementById('frameCounter').textContent = 
+                        `Frame: ${data.processed_frames} / ${data.total_frames}`;
                 }
                 
                 // Continue polling
-                setTimeout(pollStatus, 500);  // Faster polling for progress updates
+                setTimeout(pollStatus, 500);  // Poll faster for real-time updates
             } else if (data.status === 'completed') {
                 updateStep('step2', '✅', 'text-success');
                 updateStep('step3', '✅', 'text-success');
@@ -301,14 +298,40 @@
                 document.getElementById('progressBar').style.width = '100%';
                 document.getElementById('progressPercent').textContent = '100%';
                 
+                // Update stream status
+                const streamStatus = document.getElementById('streamStatus');
+                streamStatus.innerHTML = `
+                    <span class="w-2 h-2 bg-green-500 rounded-full"></span>
+                    Processing Complete
+                `;
+                
                 // Show results
                 setTimeout(() => {
                     document.getElementById('processingStatus').classList.add('hidden');
                     document.getElementById('results').classList.remove('hidden');
                     document.getElementById('viewResultLink').href = `/detail/${data.output_name}`;
-                }, 1000);
+                    
+                    // Add button to go back to dashboard
+                    const resultsDiv = document.getElementById('results');
+                    const existingButton = resultsDiv.querySelector('a[href="/"]');
+                    if (!existingButton) {
+                        const backButton = `
+                            <a href="/" class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium 
+                                       transition-colors">
+                                Back to Dashboard
+                            </a>
+                        `;
+                        resultsDiv.querySelector('.flex').insertAdjacentHTML('beforeend', backButton);
+                    }
+                }, 2000);
             } else if (data.status === 'failed') {
                 showError(data.message);
+                // Update stream status
+                const streamStatus = document.getElementById('streamStatus');
+                streamStatus.innerHTML = `
+                    <span class="w-2 h-2 bg-red-500 rounded-full"></span>
+                    Processing Failed
+                `;
             } else {
                 // Continue polling
                 setTimeout(pollStatus, 1000);
@@ -317,6 +340,31 @@
             console.error('Status poll error:', error);
             setTimeout(pollStatus, 1000);
         }
+    }
+    
+    function startLiveStream() {
+        const streamImg = document.getElementById('liveStream');
+        const streamLoading = document.getElementById('streamLoading');
+        
+        // Set stream source
+        streamImg.src = `/api/stream/${jobId}`;
+        
+        // Handle stream loaded
+        streamImg.onload = function() {
+            streamLoading.style.display = 'none';
+            streamImg.style.display = 'block';
+        };
+        
+        // Handle stream errors
+        streamImg.onerror = function() {
+            console.error('Stream error, will retry...');
+            setTimeout(() => {
+                if (streamImg.src) {
+                    // Add timestamp to force refresh
+                    streamImg.src = `/api/stream/${jobId}?t=${Date.now()}`;
+                }
+            }, 1000);
+        };
     }
     
     function updateStep(stepId, icon, textClass) {
