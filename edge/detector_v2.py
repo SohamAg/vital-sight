@@ -549,7 +549,7 @@ class VitalSightV2:
         
         return float(min(1.0, score))
 
-    def process(self, source=0, display=True):
+    def process(self, source=0, display=True, save_output=False, output_path=None):
         if isinstance(source, str) and source.isdigit():
             src_handle = int(source)
         else:
@@ -562,6 +562,27 @@ class VitalSightV2:
         
         # Store source path for Gemini reporting
         self.source_path = source if isinstance(source, str) else None
+        
+        # Setup video writer if saving output
+        video_writer = None
+        if save_output:
+            from pathlib import Path
+            if output_path is None and self.source_path:
+                # Auto-generate output path in data/processed/
+                output_dir = Path("data/processed")
+                output_dir.mkdir(parents=True, exist_ok=True)
+                video_name = Path(self.source_path).stem
+                output_path = output_dir / f"{video_name}_processed.mp4"
+            
+            if output_path:
+                # Get video properties
+                fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                video_writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+                print(f"[INFO] Saving processed video to: {output_path}")
         
         # Detect source type and hint
         is_webcam = isinstance(src_handle, int)
@@ -885,6 +906,10 @@ class VitalSightV2:
                 self.fps = 0.9 * self.fps + 0.1 * (1.0 / max(1e-6, dt))
                 cv2.putText(annotated, f"{self.fps:5.1f} FPS", (12, y0 + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
+            # Write frame to output video if enabled
+            if video_writer is not None:
+                video_writer.write(annotated)
+
             if display:
                 cv2.imshow("VitalSight v2", annotated)
                 if seek["active"] and not seek["pending"]:
@@ -897,6 +922,12 @@ class VitalSightV2:
                     break
 
         cap.release()
+        
+        # Release video writer if used
+        if video_writer is not None:
+            video_writer.release()
+            print(f"[INFO] Processed video saved successfully")
+        
         if display:
             cv2.destroyWindow(window_name)
         cv2.destroyAllWindows()

@@ -37,37 +37,65 @@ class GeminiReporter:
             "severe_injury": "Severe Injury"
         }
         
-    def generate_prompt(self, category, confidence):
+    def generate_prompt(self, category, confidence, source_path=None, timestamp=None):
         """
         Generate a prompt for Gemini based on the detected category.
         
         Args:
             category: The detected situation category
             confidence: Confidence score of the detection
+            source_path: Source video path
+            timestamp: Detection timestamp
             
         Returns:
             A formatted prompt string
         """
         category_display = self.category_names.get(category, category)
         
-        prompt = f"""You are a security and safety analysis expert. Our AI detection system has identified a potential {category_display} situation in this image with a confidence of {confidence:.2%}.
+        # Define notification protocols and urgency
+        if category in ["fire", "distress", "severe_injury"]:
+            severity = "CRITICAL"
+            notification = "Authorities will be notified via EMAIL, SMS, and IMMEDIATE PHONE CALL"
+            reason = {
+                "fire": "Fire situations are highly imminent and can rapidly escalate, causing widespread damage and loss of life. Immediate emergency response is required.",
+                "distress": "Respiratory distress can lead to cardiac arrest within minutes. Immediate medical intervention is critical for survival.",
+                "severe_injury": "Severe injuries require immediate medical attention to prevent death or permanent disability. Every second counts in trauma cases."
+            }.get(category, "Immediate response required.")
+        else:  # fall, violence_panic
+            severity = "MEDIUM"
+            notification = "Authorities will be notified via EMAIL and SMS alerts"
+            reason = {
+                "fall": "Falls may result in injuries requiring medical assessment, but immediate life threat is typically lower. Response should be prompt but controlled.",
+                "violence_panic": "Crowd incidents require security response to prevent escalation, but can be managed with coordinated intervention."
+            }.get(category, "Prompt response needed.")
+        
+        source_info = f"from source '{source_path}'" if source_path else ""
+        time_info = f"at {timestamp}" if timestamp else ""
+        
+        prompt = f"""You are an emergency response analyst. A {category_display.upper()} situation has been detected in this frame {source_info} {time_info} with {confidence:.1%} confidence.
 
-**Your task:** Assume our detection is correct and provide a brief, factual report describing what you observe in the image that confirms or explains this situation.
+**Your task:** Describe EXACTLY what is happening in this frame as if you were narrating it to emergency responders over the phone or writing it in an urgent email. Be specific, clear, and factual.
 
-**Focus on:**
-1. Visual evidence supporting the detection (body positions, postures, environmental factors)
-2. Number of people involved
-3. Specific actions or states visible in the frame
-4. Any environmental hazards or conditions present
-5. Urgency level and immediate concerns
+**Describe:**
+1. What you see happening to the person(s) - their exact position, posture, condition
+2. The immediate environment and any hazards visible
+3. Number of people involved and their states
+4. Any visible injuries, danger signs, or critical elements
+5. What likely just happened or is currently happening
 
-**Format:**
-- Keep it concise (3-5 sentences)
-- Use objective, professional language
-- Focus on observable facts
-- Provide actionable insights
+**Critical Guidelines:**
+- Write in present tense as if describing a live situation
+- Use plain, direct language (this may be read aloud to responders)
+- Be specific about locations, positions, and conditions
+- Mention any time-sensitive factors
+- Keep it focused and under 5 sentences
 
-Please analyze the image and provide your report now."""
+**NOTIFICATION PROTOCOL:**
+Severity: {severity}
+Protocol: {notification}
+Reason: {reason}
+
+Provide your emergency situation report now."""
 
         return prompt
     
@@ -109,8 +137,11 @@ Please analyze the image and provide your report now."""
             # Save frame temporarily for Gemini
             frame_path = self.save_frame(frame, source_path, category)
             
-            # Generate prompt
-            prompt = self.generate_prompt(category, confidence)
+            # Generate timestamp
+            timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Generate prompt with context
+            prompt = self.generate_prompt(category, confidence, source_path, timestamp)
             
             # Load image for Gemini
             image = genai.upload_file(str(frame_path))
@@ -129,21 +160,38 @@ Please analyze the image and provide your report now."""
             report_filename = f"{video_name}_{category}_report.txt"
             report_path = self.reports_dir / report_filename
             
+            # Determine severity and notification protocol
+            if category in ["fire", "distress", "severe_injury"]:
+                severity = "🔴 CRITICAL"
+                notification_method = "EMAIL + SMS + IMMEDIATE PHONE CALL"
+                response_time = "IMMEDIATE (< 2 minutes)"
+            else:
+                severity = "🟡 MEDIUM"
+                notification_method = "EMAIL + SMS"
+                response_time = "PROMPT (< 10 minutes)"
+            
             # Save report
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write("=" * 80 + "\n")
-                f.write(f"VITALSIGHT AI DETECTION REPORT\n")
+                f.write(f"🚨 VITALSIGHT EMERGENCY DETECTION REPORT\n")
                 f.write("=" * 80 + "\n\n")
-                f.write(f"Category: {self.category_names.get(category, category)}\n")
-                f.write(f"Confidence: {confidence:.2%}\n")
+                f.write(f"ALERT TYPE: {self.category_names.get(category, category).upper()}\n")
+                f.write(f"Severity Level: {severity}\n")
+                f.write(f"Detection Confidence: {confidence:.1%}\n")
                 f.write(f"Source: {source_path or 'Unknown'}\n")
-                f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Frame Image: {frame_path.name}\n")
-                f.write("\n" + "-" * 80 + "\n")
-                f.write("GEMINI VLM ANALYSIS:\n")
-                f.write("-" * 80 + "\n\n")
+                f.write(f"Timestamp: {timestamp}\n")
+                f.write(f"Evidence Frame: {frame_path.name}\n")
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("SITUATION REPORT:\n")
+                f.write("=" * 80 + "\n\n")
                 f.write(report_text)
                 f.write("\n\n" + "=" * 80 + "\n")
+                f.write("NOTIFICATION PROTOCOL:\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(f"Notification Method: {notification_method}\n")
+                f.write(f"Expected Response Time: {response_time}\n")
+                f.write(f"Authorities to be contacted: Emergency Services, Security Team, Medical Response\n")
+                f.write("\n" + "=" * 80 + "\n")
             
             print(f"[GEMINI] ✓ Report saved to: {report_path}")
             
