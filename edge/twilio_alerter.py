@@ -5,6 +5,18 @@ Sends SMS and voice calls based on detected situations
 import os
 from twilio.rest import Client
 from datetime import datetime
+from pathlib import Path
+
+# ElevenLabs imports (handle both old and new API versions)
+try:
+    from elevenlabs.client import ElevenLabs
+    ELEVENLABS_NEW_API = True
+except ImportError:
+    try:
+        from elevenlabs import generate, save, set_api_key
+        ELEVENLABS_NEW_API = False
+    except ImportError:
+        ELEVENLABS_NEW_API = None
 
 
 class TwilioAlerter:
@@ -66,6 +78,22 @@ class TwilioAlerter:
                 "emoji": "🚨"
             }
         }
+        
+        # ElevenLabs API key (optional)
+        self.elevenlabs_key = os.environ.get('ELEVENLABS_API_KEY')
+        self.elevenlabs_client = None
+        if self.elevenlabs_key:
+            if ELEVENLABS_NEW_API:
+                self.elevenlabs_client = ElevenLabs(api_key=self.elevenlabs_key)
+                print(f"[TWILIO] ElevenLabs voice synthesis enabled (new API)")
+            elif ELEVENLABS_NEW_API is False:
+                set_api_key(self.elevenlabs_key)
+                print(f"[TWILIO] ElevenLabs voice synthesis enabled (legacy API)")
+            else:
+                print(f"[TWILIO] ElevenLabs not installed, voice synthesis disabled")
+        
+        # Pending voice calls (waiting for Gemini report)
+        self.pending_calls = {}  # {category: {"situation_text": None, "confidence": 0, "source": None}}
         
         print(f"[TWILIO] Alert system initialized")
         print(f"[TWILIO] Alerts will be sent to: {self.to_number}")
@@ -212,7 +240,7 @@ Check surveillance system for details.
             print(f"[TWILIO] ✗ Failed to make call: {e}")
             return False
     
-    def send_alert(self, category, confidence, source_path=None):
+    def send_alert(self, category, confidence, source_path=None, gemini_enabled=False):
         """
         Send appropriate alert(s) based on category
         
@@ -220,6 +248,7 @@ Check surveillance system for details.
             category: Detection category
             confidence: Detection confidence
             source_path: Video source path
+            gemini_enabled: If True, skip immediate call (wait for Gemini callback)
         """
         # Create unique alert ID to prevent duplicates
         alert_id = f"{category}_{source_path}_{int(datetime.now().timestamp() / 60)}"
@@ -235,12 +264,16 @@ Check surveillance system for details.
         
         print(f"\n[TWILIO] 🚨 Sending {config['priority']} alert for {category}")
         
-        # Send according to configuration
+        # Send SMS immediately (always instant)
         if "sms" in methods:
             self.send_sms(category, confidence, source_path)
         
-        if "call" in methods:
+        # Make call immediately ONLY if Gemini is not enabled
+        # If Gemini is enabled, the call will be made by on_situation_report_ready()
+        if "call" in methods and not gemini_enabled:
             self.make_call(category, confidence)
+        elif "call" in methods and gemini_enabled:
+            print(f"[TWILIO] Call will be made after Gemini report is ready (with ElevenLabs voice)")
         
         # Mark as sent
         self.sent_alerts.add(alert_id)
@@ -248,3 +281,142 @@ Check surveillance system for details.
         # Clean up old alerts (keep last 100)
         if len(self.sent_alerts) > 100:
             self.sent_alerts = set(list(self.sent_alerts)[-100:])
+    
+    def generate_elevenlabs_audio(self, text, category):
+        """
+        Generate audio using ElevenLabs from situation report text
+        
+        Args:
+            text: The situation report text to convert to speech
+            category: Detection category
+            
+        Returns:
+            Path to generated audio file, or None if failed
+        """
+        if not self.elevenlabs_key:
+            print("[TWILIO] ElevenLabs not configured, skipping voice generation")
+            return None
+        
+        try:
+            print(f"[ELEVENLABS] Generating voice for {category} report...")
+            
+            # Save to temporary file
+            audio_dir = Path("data/temp_audio")
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            audio_path = audio_dir / f"{category}_{int(datetime.now().timestamp())}.mp3"
+            
+            # Generate audio using appropriate API version
+            if ELEVENLABS_NEW_API and self.elevenlabs_client:
+                # New API (v1.0+) - Use better model and voice settings for natural speech
+                audio_generator = self.elevenlabs_client.generate(
+                    text=text,
+                    voice="Rachel",  # Can also try: "Bella", "Elli", "Charlotte"
+                    model="eleven_turbo_v2",  # Faster and more natural than v1
+                    voice_settings={
+                        "stability": 0.5,        # Lower = more expressive (0.3-0.6 for natural)
+                        "similarity_boost": 0.75,  # Higher = more like original voice
+                        "style": 0.5,            # Exaggeration of speaking style
+                        "use_speaker_boost": True  # Enhances clarity
+                    }
+                )
+                
+                # Write audio to file
+                with open(audio_path, 'wb') as f:
+                    for chunk in audio_generator:
+                        if chunk:
+                            f.write(chunk)
+            else:
+                # Legacy API (v0.x)
+                audio = generate(
+                    text=text,
+                    voice="Rachel",
+                    model="eleven_monolingual_v1"
+                )
+                save(audio, str(audio_path))
+            
+            print(f"[ELEVENLABS] ✓ Voice generated: {audio_path}")
+            return audio_path
+            
+        except Exception as e:
+            print(f"[ELEVENLABS] ✗ Failed to generate voice: {e}")
+            return None
+    
+    def make_call_with_audio(self, category, confidence, audio_url):
+        """
+        Make voice call with custom audio URL
+        
+        Args:
+            category: Detection category
+            confidence: Detection confidence
+            audio_url: URL to audio file to play
+            
+        Returns:
+            True if call initiated successfully, False otherwise
+        """
+        try:
+            # Create TwiML to play the audio file
+            twiml = f"""
+            <Response>
+                <Play>{audio_url}</Play>
+                <Pause length="2"/>
+                <Say voice="alice">
+                    Press any key to acknowledge this alert.
+                </Say>
+            </Response>
+            """.strip()
+            
+            result = self.client.calls.create(
+                twiml=twiml,
+                from_=self.from_number,
+                to=self.to_number
+            )
+            
+            print(f"[TWILIO] ✓ Call initiated for {category} with custom audio (SID: {result.sid})")
+            return True
+            
+        except Exception as e:
+            print(f"[TWILIO] ✗ Failed to make call with audio: {e}")
+            return False
+    
+    def on_situation_report_ready(self, situation_text, category, confidence, source_path):
+        """
+        Callback function called when Gemini situation report is ready.
+        Generates voice using ElevenLabs and makes the call.
+        
+        Args:
+            situation_text: The generated situation report text
+            category: Detection category
+            confidence: Detection confidence
+            source_path: Video source path
+        """
+        # Only process if this category requires voice calls
+        config = self.alert_config.get(category, {})
+        if "call" not in config.get("methods", []):
+            return
+        
+        print(f"\n[TWILIO] Situation report ready for {category}, generating voice call...")
+        
+        # Check if ElevenLabs is available
+        if not self.elevenlabs_key:
+            print("[TWILIO] ElevenLabs not configured, using generic TwiML voice")
+            self.make_call(category, confidence)
+            return
+        
+        # Generate audio using ElevenLabs
+        audio_path = self.generate_elevenlabs_audio(situation_text, category)
+        
+        if not audio_path:
+            print("[TWILIO] Falling back to generic TwiML voice")
+            self.make_call(category, confidence)
+            return
+        
+        # For now, we need a publicly accessible URL for the audio
+        # TODO: Upload to S3, Firebase, or use ngrok for local testing
+        print("[TWILIO] Note: Audio file generated locally at:", audio_path)
+        print("[TWILIO] To use ElevenLabs voice, you need to:")
+        print("[TWILIO]   1. Upload audio to publicly accessible URL (S3, Firebase, etc.)")
+        print("[TWILIO]   2. Pass that URL to make_call_with_audio()")
+        print("[TWILIO] For now, using generic TwiML voice...")
+        
+        # Fallback to generic voice for now
+        self.make_call(category, confidence)

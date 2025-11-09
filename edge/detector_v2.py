@@ -817,22 +817,35 @@ class VitalSightV2:
                     if not self.first_detections[category]["reported"]:
                         print(f"\n[FIRST DETECTION] {category} detected at confidence {confidence:.2%}")
                         
-                        # Send Twilio alert if enabled
-                        if self.twilio_alerter and not self.first_detections[category]["alerted"]:
-                            try:
-                                self.twilio_alerter.send_alert(category, confidence, self.source_path)
-                                self.first_detections[category]["alerted"] = True
-                            except Exception as e:
-                                print(f"[ERROR] Failed to send Twilio alert: {e}")
+                    # Send Twilio alert if enabled
+                    if self.twilio_alerter and not self.first_detections[category]["alerted"]:
+                        try:
+                            # Pass gemini_enabled flag to prevent duplicate calls
+                            gemini_enabled = self.gemini_reporter is not None
+                            self.twilio_alerter.send_alert(
+                                category, 
+                                confidence, 
+                                self.source_path,
+                                gemini_enabled=gemini_enabled
+                            )
+                            self.first_detections[category]["alerted"] = True
+                        except Exception as e:
+                            print(f"[ERROR] Failed to send Twilio alert: {e}")
                         
                         # Generate Gemini report if enabled
                         if self.gemini_reporter:
                             try:
+                                # Pass Twilio callback if available (for ElevenLabs voice integration)
+                                callback = None
+                                if self.twilio_alerter and hasattr(self.twilio_alerter, 'on_situation_report_ready'):
+                                    callback = self.twilio_alerter.on_situation_report_ready
+                                
                                 self.gemini_reporter.generate_report_async(
                                     self.first_detections[category]["frame"],
                                     category,
                                     confidence,
-                                    self.source_path
+                                    self.source_path,
+                                    callback=callback
                                 )
                                 self.first_detections[category]["reported"] = True
                             except Exception as e:

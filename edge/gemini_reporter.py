@@ -164,7 +164,7 @@ Provide your detailed emergency response report now."""
         cv2.imwrite(str(frame_path), frame)
         return frame_path
     
-    def _generate_report_sync(self, frame, category, confidence, source_path=None):
+    def _generate_report_sync(self, frame, category, confidence, source_path=None, callback=None):
         """
         Synchronous report generation (internal method called by thread).
         
@@ -173,6 +173,7 @@ Provide your detailed emergency response report now."""
             category: Detection category
             confidence: Confidence score
             source_path: Original video source path
+            callback: Optional callback function to call with situation report text
         """
         try:
             # Save frame temporarily for Gemini
@@ -240,6 +241,13 @@ Provide your detailed emergency response report now."""
             
             print(f"[GEMINI] ✓ Report saved to: {report_path}")
             
+            # Call callback with situation report text if provided
+            if callback:
+                try:
+                    callback(report_text, category, confidence, source_path)
+                except Exception as e:
+                    print(f"[GEMINI] Warning: Callback failed: {e}")
+            
             # Clean up uploaded file from Gemini
             try:
                 genai.delete_file(image.name)
@@ -262,7 +270,7 @@ Provide your detailed emergency response report now."""
                 f.write(f"Error: {error_msg}\n")
                 f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
     
-    def generate_report_async(self, frame, category, confidence, source_path=None):
+    def generate_report_async(self, frame, category, confidence, source_path=None, callback=None):
         """
         Generate a detailed report using Gemini VLM asynchronously.
         This method returns immediately and runs report generation in background.
@@ -272,6 +280,7 @@ Provide your detailed emergency response report now."""
             category: Detection category
             confidence: Confidence score
             source_path: Original video source path
+            callback: Optional callback function(situation_text, category, confidence, source_path)
         """
         # Create a copy of the frame to avoid issues with frame being modified
         frame_copy = frame.copy()
@@ -279,7 +288,7 @@ Provide your detailed emergency response report now."""
         # Start background thread for report generation
         thread = threading.Thread(
             target=self._generate_report_sync,
-            args=(frame_copy, category, confidence, source_path),
+            args=(frame_copy, category, confidence, source_path, callback),
             daemon=True
         )
         thread.start()
@@ -298,4 +307,3 @@ Provide your detailed emergency response report now."""
                 thread.join()
             self.active_threads.clear()
             print("[GEMINI] All reports completed.")
-
