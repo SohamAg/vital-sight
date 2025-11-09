@@ -1,0 +1,87 @@
+yolo:
+  model: yolo11n.pt         # <-- switched to YOLO11
+  conf: 0.35
+  iou: 0.6
+  classes: [0]
+
+pose:
+  enabled: true
+  backend: yolo11n-pose     # <-- switched to YOLO11 pose
+  max_people: 2
+  min_box_area_frac: 0.02
+  min_aspect: 1.1
+
+runtime:
+  device: cuda          # auto|cuda|cpu
+  input_size: 640
+  show_fps: true
+  use_letterbox: true   # preserve aspect ratio (recommended)
+  cam_width: 1280       # webcam capture width (0 = default)
+  cam_height: 720       # webcam capture height (0 = default)
+  hint_boost: 1.5       # boost for hinted category when filtering is enabled
+  fire_hint_boost: 2.0  # aggressive boost for fire detection
+  webcam_focus:         # categories to detect in live webcam mode (NO fire)
+    - fall
+    - distress
+    - violence_panic
+    - severe_injury
+
+profile: webcam         # webcam|cctv
+
+logic:
+  fall:
+    w_box: 0.7
+    w_pose: 0.3
+    debounce_f: 2
+  resp:
+    window_s: 18
+    rr_min: 8
+    rr_max: 30
+    irregularity_thr: 0.35
+    hand_chest_px: 45
+    prox_thresh: 0.2
+    motion_thresh: 6.0    # bounding box movement threshold (lower = more sensitive)
+    w_hands: 0.7
+    w_hands_close: 0.3
+    debounce_f: 3
+  violence:
+    prox_px: 70
+    flow_mag: 12.0
+    crowd_count: 2
+    debounce_f: 10
+  fire:
+    detection_mode: hsv
+    yolo_model: yolo11n.pt
+    yolo_classes: []
+    yolo_conf: 0.35
+    yolo_iou: 0.5
+    persist_f: 6
+    hsv_ratio: 0.022
+    sat_min: 95
+    val_min: 155
+    bright_thresh: 210
+    change_thresh: 0.008
+    person_margin: 5
+    median_blur: 3
+    morph_kernel: 3
+    boost: 1.0
+    min_ratio: 0.004
+  severe_injury:
+    motion_eps: 8.0
+    lying_min: 0.5
+    w_lying: 0.4      # weight for lying posture
+    w_distress: 0.2   # weight for distress signals
+    w_still: 0.2      # weight for stillness
+    w_impact: 0.2     # weight for object impact/collision (reduced from 0.4)
+    debounce_f: 12    # increased smoothing
+
+hysteresis:
+  enter: 0.45
+  exit: 0.30
+  fall_enter: 0.65
+  fall_exit: 0.40
+  injury_enter: 0.60
+  injury_exit: 0.35
+
+cooldowns:
+  per_camera_s: 45

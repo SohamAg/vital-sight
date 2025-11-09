@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}VitalSight Dashboard{% endblock %}</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#06b6d4',
+                        critical: '#ef4444',
+                        medium: '#f59e0b',
+                        success: '#10b981'
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Custom Styles -->
+    <style>
+        .glass {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+        }
+        
+        .video-tile:hover video {
+            transform: scale(1.05);
+        }
+        
+        .pulse-ring {
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse-ring {
+            0%, 100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.5;
+                transform: scale(1.1);
+            }
+        }
+        
+        /* Floating bubbles */
+        .bubble {
+            position: fixed;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.05) 0%, rgba(34, 211, 238, 0.05) 100%);
+            animation: float 20s infinite ease-in-out;
+            backdrop-filter: blur(2px);
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(0) translateX(0) rotate(0deg);
+                opacity: 0.3;
+            }
+            33% {
+                transform: translateY(-120px) translateX(80px) rotate(120deg);
+                opacity: 0.5;
+            }
+            66% {
+                transform: translateY(-60px) translateX(-60px) rotate(240deg);
+                opacity: 0.4;
+            }
+        }
+        
+        .bubble:nth-child(1) { width: 100px; height: 100px; left: 10%; top: 20%; animation-delay: 0s; animation-duration: 25s; }
+        .bubble:nth-child(2) { width: 150px; height: 150px; left: 70%; top: 10%; animation-delay: 3s; animation-duration: 30s; }
+        .bubble:nth-child(3) { width: 80px; height: 80px; right: 15%; bottom: 20%; animation-delay: 6s; animation-duration: 22s; }
+        .bubble:nth-child(4) { width: 120px; height: 120px; left: 40%; bottom: 30%; animation-delay: 2s; animation-duration: 28s; }
+        .bubble:nth-child(5) { width: 90px; height: 90px; right: 40%; top: 50%; animation-delay: 4s; animation-duration: 26s; }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+    </style>
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen relative">
+    <!-- Floating bubbles -->
+    <div class="bubble"></div>
+    <div class="bubble"></div>
+    <div class="bubble"></div>
+    <div class="bubble"></div>
+    <div class="bubble"></div>
+    
+    <!-- Navigation -->
+    <nav class="glass border-b border-gray-700 sticky top-0 z-50">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <!-- Logo -->
+                <a href="/" class="flex items-center space-x-3">
+                    <div class="text-3xl">🚨</div>
+                    <div>
+                        <h1 class="text-2xl font-bold bg-gradient-to-r from-primary to-cyan-300 bg-clip-text text-transparent">
+                            VitalSight
+                        </h1>
+                        <p class="text-xs text-gray-400">Context-Aware Environment System</p>
+                    </div>
+                </a>
+                
+                <!-- Navigation Tabs & User Profile -->
+                <div class="flex items-center gap-4">
+                    <!-- Nav Tabs -->
+                    <div class="flex gap-3">
+                        <a href="/" class="nav-tab {% if request.path == '/' %}active{% endif %}">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1v-3z"/>
+                            </svg>
+                            <span>Grid View</span>
+                        </a>
+                        <a href="/upload" class="nav-tab {% if request.path == '/upload' %}active{% endif %}">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                            <span>Upload</span>
+                        </a>
+                        <a href="/webcam" class="nav-tab {% if request.path == '/webcam' %}active{% endif %}">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                            </svg>
+                            <span>Webcam</span>
+                        </a>
+                    </div>
+                    
+                    <!-- User Dropdown -->
+                    <div class="relative user-dropdown ml-2">
+                        <button class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-700 transition-all" onclick="toggleDropdown()">
+                            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-cyan-500 flex items-center justify-center text-white font-semibold text-sm">
+                                {{ session.user.name[0] if session.user else 'U' }}
+                            </div>
+                            <span class="text-sm text-gray-300">{{ session.user.name if session.user else 'User' }}</span>
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        
+                        <!-- Dropdown Menu -->
+                        <div id="userDropdown" class="hidden absolute right-0 mt-2 w-64 glass rounded-lg border border-gray-700 shadow-2xl overflow-hidden z-50">
+                            <div class="p-4 border-b border-gray-700">
+                                <p class="font-semibold text-white">{{ session.user.name if session.user else 'User' }}</p>
+                                <p class="text-sm text-gray-400 mt-1">{{ session.user.email if session.user else 'user@example.com' }}</p>
+                            </div>
+                            <div class="p-2">
+                                <a href="/logout" class="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-700 transition-colors text-gray-300">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                    </svg>
+                                    <span>Sign Out</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 py-8 relative z-10">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- Footer -->
+    <footer class="glass border-t border-gray-700 mt-12 py-6">
+        <div class="container mx-auto px-6 text-center text-gray-400 text-sm">
+            <p>VitalSight • Context-Aware Environment System</p>
+        </div>
+    </footer>
+    
+    <!-- Shared Styles -->
+    <style>
+        .nav-tab {
+            @apply flex items-center gap-2.5 px-5 py-2.5 rounded-lg transition-all duration-200;
+            @apply text-gray-300 hover:text-white hover:bg-gray-700;
+        }
+        
+        .nav-tab.active {
+            @apply bg-primary text-white;
+        }
+        
+        /* Dropdown visibility */
+        .user-dropdown #userDropdown.show {
+            display: block !important;
+        }
+    </style>
+    
+    <script>
+        function toggleDropdown() {
+            const dropdown = document.getElementById('userDropdown');
+            dropdown.classList.toggle('show');
+            dropdown.classList.toggle('hidden');
+        }
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('userDropdown');
+            const userDropdown = document.querySelector('.user-dropdown');
+            if (dropdown && userDropdown && !userDropdown.contains(event.target)) {
+                dropdown.classList.add('hidden');
+                dropdown.classList.remove('show');
+            }
+        });
+    </script>
+    
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>
+

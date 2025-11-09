@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+
+{% block title %}Live Webcam - VitalSight{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-3 gap-6">
+    <!-- Left Side: Webcam Feed (2/3 width) -->
+    <div class="col-span-2 space-y-4">
+        <!-- Header -->
+        <div class="glass rounded-lg p-4">
+            <h2 class="text-2xl font-bold mb-1 flex items-center gap-2">
+                <span class="relative flex h-3 w-3">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-success" id="liveIndicator"></span>
+                </span>
+                <span>Live Webcam Analysis</span>
+            </h2>
+            <p class="text-gray-400 text-sm">Real-time emergency detection</p>
+        </div>
+        
+        <!-- Webcam Feed -->
+        <div class="glass rounded-xl overflow-hidden">
+            <div class="relative bg-black aspect-video flex items-center justify-center">
+                <video id="webcam" autoplay playsinline class="w-full h-full object-cover hidden"></video>
+                <canvas id="canvas" class="w-full h-full object-cover hidden"></canvas>
+                
+                <!-- Placeholder -->
+                <div id="placeholder" class="text-center p-12">
+                    <div class="text-6xl mb-4">📹</div>
+                    <h3 class="text-xl font-bold mb-2">Webcam Not Started</h3>
+                    <p class="text-gray-400 mb-6">Click "Start Monitoring" to begin live analysis</p>
+                </div>
+                
+                <!-- FPS Counter -->
+                <div id="fpsCounter" class="absolute top-4 left-4 glass px-3 py-2 rounded-lg hidden">
+                    <span class="text-sm font-medium">FPS: <span id="fps">0</span></span>
+                </div>
+                
+                <!-- Live Badge -->
+                <div id="liveBadge" class="absolute top-4 right-4 hidden">
+                    <div class="flex items-center gap-2 bg-critical px-3 py-2 rounded-full">
+                        <span class="relative flex h-2 w-2">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                        </span>
+                        <span class="text-white text-sm font-medium">LIVE</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Controls -->
+            <div class="p-4 bg-gray-800/50 border-t border-gray-700">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <button id="startBtn" onclick="startWebcam()" 
+                                class="px-4 py-2 bg-success hover:bg-green-600 rounded-lg font-medium
+                                       transition-colors flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span>Start Monitoring</span>
+                        </button>
+                        
+                        <button id="stopBtn" onclick="stopWebcam()" disabled
+                                class="px-4 py-2 bg-critical hover:bg-red-600 rounded-lg font-medium
+                                       transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                                       flex items-center gap-2 hidden">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
+                            </svg>
+                            <span>Stop Monitoring</span>
+                        </button>
+                        
+                        <button id="captureBtn" onclick="captureFrame()" disabled
+                                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium
+                                       transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                                       flex items-center gap-2 hidden">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            <span>Capture</span>
+                        </button>
+                    </div>
+                    
+                    <div class="text-sm text-gray-400">
+                        Status: <span id="status" class="font-medium">Idle</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Info Card -->
+        <div class="glass rounded-lg p-4 text-sm text-gray-400">
+            <p><strong class="text-gray-300">Note:</strong> Webcam analysis runs in your browser. 
+            VitalSight detection will automatically analyze each frame for emergency situations. 
+            Detected events will appear in the alerts panel.</p>
+        </div>
+    </div>
+    
+    <!-- Right Side: Detections Panel (1/3 width) -->
+    <div class="col-span-1 space-y-4">
+        <div class="glass rounded-lg p-4">
+            <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+                <span>🔔</span>
+                <span>Live Detections</span>
+            </h3>
+            
+            <!-- Stats -->
+            <div class="grid grid-cols-2 gap-3 mb-6">
+                <div class="bg-gray-800/50 rounded-lg p-3">
+                    <p class="text-gray-400 text-xs mb-1">Active</p>
+                    <p class="text-2xl font-bold text-primary" id="activeCount">0</p>
+                </div>
+                <div class="bg-gray-800/50 rounded-lg p-3">
+                    <p class="text-gray-400 text-xs mb-1">Total</p>
+                    <p class="text-2xl font-bold text-gray-300" id="totalCount">0</p>
+                </div>
+            </div>
+            
+            <!-- Detection List -->
+            <div id="detectionList" class="space-y-3 max-h-[500px] overflow-y-auto">
+                <!-- Empty State -->
+                <div id="emptyState" class="text-center py-8 text-gray-500">
+                    <div class="text-4xl mb-2">👁️</div>
+                    <p class="text-sm">Monitoring for emergencies...</p>
+                    <p class="text-xs mt-1">Detections will appear here</p>
+                </div>
+                
+                <!-- Detection items will be added dynamically -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let webcamStream = null;
+    let isMonitoring = false;
+    let detectionCount = 0;
+    let frameCount = 0;
+    let lastFpsUpdate = Date.now();
+    
+    async function startWebcam() {
+        try {
+            // Request webcam access
+            webcamStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            });
+            
+            // Set up video element
+            const video = document.getElementById('webcam');
+            video.srcObject = webcamStream;
+            
+            // Hide placeholder, show video
+            document.getElementById('placeholder').classList.add('hidden');
+            video.classList.remove('hidden');
+            document.getElementById('fpsCounter').classList.remove('hidden');
+            document.getElementById('liveBadge').classList.remove('hidden');
+            
+            // Update buttons
+            document.getElementById('startBtn').classList.add('hidden');
+            document.getElementById('stopBtn').classList.remove('hidden');
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('captureBtn').classList.remove('hidden');
+            document.getElementById('captureBtn').disabled = false;
+            
+            // Update status
+            document.getElementById('status').textContent = 'Monitoring';
+            document.getElementById('status').className = 'font-medium text-success';
+            document.getElementById('liveIndicator').className = 'relative inline-flex rounded-full h-3 w-3 bg-success';
+            
+            isMonitoring = true;
+            
+            // Start processing frames
+            processFrames();
+            
+        } catch (error) {
+            console.error('Error accessing webcam:', error);
+            alert('Could not access webcam. Please ensure you have granted camera permissions.');
+        }
+    }
+    
+    function stopWebcam() {
+        if (webcamStream) {
+            webcamStream.getTracks().forEach(track => track.stop());
+            webcamStream = null;
+        }
+        
+        isMonitoring = false;
+        
+        // Reset UI
+        const video = document.getElementById('webcam');
+        video.srcObject = null;
+        video.classList.add('hidden');
+        document.getElementById('placeholder').classList.remove('hidden');
+        document.getElementById('fpsCounter').classList.add('hidden');
+        document.getElementById('liveBadge').classList.add('hidden');
+        
+        // Update buttons
+        document.getElementById('startBtn').classList.remove('hidden');
+        document.getElementById('stopBtn').classList.add('hidden');
+        document.getElementById('captureBtn').classList.add('hidden');
+        
+        // Update status
+        document.getElementById('status').textContent = 'Idle';
+        document.getElementById('status').className = 'font-medium text-gray-400';
+        document.getElementById('liveIndicator').className = 'relative inline-flex rounded-full h-3 w-3 bg-gray-500';
+    }
+    
+    function processFrames() {
+        if (!isMonitoring) return;
+        
+        frameCount++;
+        
+        // Update FPS
+        const now = Date.now();
+        if (now - lastFpsUpdate >= 1000) {
+            document.getElementById('fps').textContent = frameCount;
+            frameCount = 0;
+            lastFpsUpdate = now;
+        }
+        
+        // Simulate detection (in real implementation, this would call the detection API)
+        // For demo purposes, randomly generate detections
+        if (Math.random() < 0.01) { // 1% chance per frame
+            simulateDetection();
+        }
+        
+        requestAnimationFrame(processFrames);
+    }
+    
+    function captureFrame() {
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        
+        // Convert to blob and download
+        canvas.toBlob((blob) => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `capture_${Date.now()}.jpg`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+        
+        // Show feedback
+        canvas.classList.remove('hidden');
+        setTimeout(() => {
+            canvas.classList.add('hidden');
+        }, 200);
+    }
+    
+    function simulateDetection() {
+        const types = [
+            { name: 'Fall', severity: 'MEDIUM', icon: '🤕' },
+            { name: 'Fire', severity: 'CRITICAL', icon: '🔥' },
+            { name: 'Distress', severity: 'CRITICAL', icon: '😰' },
+            { name: 'Violence', severity: 'MEDIUM', icon: '⚠️' }
+        ];
+        
+        const detection = types[Math.floor(Math.random() * types.length)];
+        addDetection(detection);
+    }
+    
+    function addDetection(detection) {
+        detectionCount++;
+        
+        // Update counts
+        document.getElementById('activeCount').textContent = '1';
+        document.getElementById('totalCount').textContent = detectionCount;
+        
+        // Hide empty state
+        document.getElementById('emptyState').classList.add('hidden');
+        
+        // Add detection to list
+        const list = document.getElementById('detectionList');
+        const item = document.createElement('div');
+        item.className = `p-3 rounded-lg ${
+            detection.severity === 'CRITICAL' 
+                ? 'bg-critical/10 border border-critical/30' 
+                : 'bg-medium/10 border border-medium/30'
+        } animate-pulse`;
+        
+        item.innerHTML = `
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-lg">${detection.icon}</span>
+                <span class="text-xs ${
+                    detection.severity === 'CRITICAL' ? 'text-critical' : 'text-medium'
+                } font-medium">${detection.severity}</span>
+            </div>
+            <p class="font-medium mb-1">${detection.name} Detected</p>
+            <p class="text-xs text-gray-400">${new Date().toLocaleTimeString()}</p>
+        `;
+        
+        list.insertBefore(item, list.firstChild);
+        
+        // Remove animation after 1 second
+        setTimeout(() => {
+            item.classList.remove('animate-pulse');
+        }, 1000);
+        
+        // Limit to 10 items
+        while (list.children.length > 11) { // +1 for empty state
+            list.removeChild(list.lastChild);
+        }
+    }
+</script>
+{% endblock %}
+

@@ -1,0 +1,30 @@
+# --- Core deep learning stack (CUDA 12.x build) ---
+torch
+torchvision
+torchaudio
+
+# --- YOLO 11 (Ultralytics) ---
+ultralytics>=8.3.30
+
+# --- Computer vision and math ---
+opencv-python
+numpy
+scikit-image
+tqdm
+pyyaml
+
+# --- Pose estimation ---
+mediapipe
+
+# --- AI/VLM reporting ---
+google-generativeai
+
+# --- Web Dashboard ---
+flask
+markdown
+
+# --- Optional: future extensions (comment out if not needed) ---
+# requests         # for HTTP event emitters or alerts
+# flask            # if you add a local dashboard/API
+# twilio           # if you add voice call alerts
+# elevenlabs       # if you use ElevenLabs TTS

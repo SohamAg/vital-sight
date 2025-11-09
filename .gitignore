@@ -1,0 +1,6 @@
+myenv/
+yolo11n-pose.pt
+yolo11n.pt
+check.py
+data/
+.env

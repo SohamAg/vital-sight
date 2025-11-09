@@ -1,0 +1,392 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Video - VitalSight{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <!-- Header -->
+    <div class="mb-8 text-center">
+        <h2 class="text-3xl font-bold mb-2">Upload & Analyze Video</h2>
+        <p class="text-gray-400">Process a new video with VitalSight detection system</p>
+    </div>
+    
+    <!-- Upload Area -->
+    <div class="glass rounded-xl p-8 mb-8">
+        <div id="dropZone" class="border-2 border-dashed border-gray-600 rounded-lg p-12 text-center
+                                   hover:border-primary hover:bg-gray-800/50 transition-all cursor-pointer">
+            <div id="uploadPrompt">
+                <div class="text-6xl mb-4">📤</div>
+                <h3 class="text-xl font-bold mb-2">Drag & Drop Video Here</h3>
+                <p class="text-gray-400 mb-4">or click to browse</p>
+                <button onclick="document.getElementById('fileInput').click()" 
+                        class="px-6 py-3 bg-primary hover:bg-cyan-600 rounded-lg font-medium 
+                               transition-colors inline-flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    <span>Select Video</span>
+                </button>
+                <p class="text-sm text-gray-500 mt-4">Supported: MP4, AVI, MOV, MKV (Max 500MB)</p>
+            </div>
+            
+            <div id="fileInfo" class="hidden">
+                <div class="text-5xl mb-3">🎬</div>
+                <p class="text-lg font-medium mb-2" id="fileName"></p>
+                <p class="text-gray-400 text-sm" id="fileSize"></p>
+                <button onclick="clearFile()" class="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 
+                                                     rounded-lg text-sm">
+                    Choose Different File
+                </button>
+            </div>
+        </div>
+        
+        <input type="file" id="fileInput" accept="video/*" class="hidden" onchange="handleFileSelect(event)">
+        
+        <!-- Upload Button -->
+        <div id="uploadButton" class="mt-6 hidden">
+            <button onclick="uploadVideo()" 
+                    class="w-full px-6 py-4 bg-primary hover:bg-cyan-600 rounded-lg font-bold text-lg
+                           transition-colors flex items-center justify-center gap-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+                <span>Process Video with AI Detection</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Processing Status -->
+    <div id="processingStatus" class="glass rounded-xl p-8 hidden">
+        <div class="text-center mb-6">
+            <div class="text-5xl mb-3">⚙️</div>
+            <h3 class="text-xl font-bold mb-2" id="statusTitle">Processing...</h3>
+            <p class="text-gray-400" id="statusMessage">Initializing VitalSight detection</p>
+        </div>
+        
+        <!-- Live Video Stream -->
+        <div class="mb-6">
+            <div class="relative rounded-lg overflow-hidden bg-gray-900 border-2 border-primary/30" 
+                 style="aspect-ratio: 16/9;">
+                <img id="liveStream" 
+                     src="" 
+                     class="w-full h-full object-contain"
+                     alt="Live Processing Stream"
+                     style="display: none;">
+                <div id="streamLoading" class="absolute inset-0 flex items-center justify-center">
+                    <div class="text-center">
+                        <div class="animate-spin text-8xl mb-6">⚙️</div>
+                        <p class="text-2xl font-bold text-primary mb-2">Initializing Stream...</p>
+                        <p class="text-gray-400">Preparing video for detection...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center justify-between mt-2">
+                <p class="text-sm text-gray-500">
+                    <span id="streamStatus" class="inline-flex items-center gap-1">
+                        <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                        Live Processing
+                    </span>
+                </p>
+                <p class="text-sm text-gray-400" id="frameCounter">Frame: 0 / 0</p>
+            </div>
+        </div>
+        
+        <!-- Progress Bar -->
+        <div class="mb-6">
+            <div class="flex items-center justify-between text-sm mb-2">
+                <span class="text-gray-400">Progress</span>
+                <span class="font-medium" id="progressPercent">0%</span>
+            </div>
+            <div class="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                <div id="progressBar" class="bg-gradient-to-r from-primary to-cyan-300 h-full 
+                                             transition-all duration-300 w-0">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Processing Steps -->
+        <div class="space-y-2 text-sm">
+            <div id="step1" class="flex items-center gap-2 text-gray-500">
+                <div class="w-5 h-5 flex-shrink-0">⏳</div>
+                <span>Uploading video...</span>
+            </div>
+            <div id="step2" class="flex items-center gap-2 text-gray-500">
+                <div class="w-5 h-5 flex-shrink-0">⏳</div>
+                <span>Running YOLO detection...</span>
+            </div>
+            <div id="step3" class="flex items-center gap-2 text-gray-500">
+                <div class="w-5 h-5 flex-shrink-0">⏳</div>
+                <span>Analyzing with Gemini AI...</span>
+            </div>
+            <div id="step4" class="flex items-center gap-2 text-gray-500">
+                <div class="w-5 h-5 flex-shrink-0">⏳</div>
+                <span>Generating reports...</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Results -->
+    <div id="results" class="glass rounded-xl p-8 hidden">
+        <div class="text-center mb-6">
+            <div class="text-6xl mb-3">✅</div>
+            <h3 class="text-2xl font-bold mb-2 text-success">Processing Complete!</h3>
+            <p class="text-gray-400">Your video has been analyzed successfully</p>
+        </div>
+        
+        <div class="flex gap-4 justify-center">
+            <a href="#" id="viewResultLink" 
+               class="px-6 py-3 bg-primary hover:bg-cyan-600 rounded-lg font-medium 
+                      transition-colors inline-flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                </svg>
+                <span>View Results</span>
+            </a>
+            <button onclick="location.reload()" 
+                    class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium 
+                           transition-colors">
+                Upload Another
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let selectedFile = null;
+    let jobId = null;
+    
+    // Drag and drop
+    const dropZone = document.getElementById('dropZone');
+    
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-primary', 'bg-gray-800/50');
+    });
+    
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-primary', 'bg-gray-800/50');
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-primary', 'bg-gray-800/50');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFile(files[0]);
+        }
+    });
+    
+    function handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+            handleFile(file);
+        }
+    }
+    
+    function handleFile(file) {
+        // Validate file type
+        const validTypes = ['video/mp4', 'video/avi', 'video/quicktime', 'video/x-matroska'];
+        if (!validTypes.includes(file.type)) {
+            alert('Please select a valid video file (MP4, AVI, MOV, MKV)');
+            return;
+        }
+        
+        // Validate file size (500MB)
+        if (file.size > 500 * 1024 * 1024) {
+            alert('File is too large. Maximum size is 500MB');
+            return;
+        }
+        
+        selectedFile = file;
+        
+        // Show file info
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('fileSize').textContent = formatBytes(file.size);
+        document.getElementById('uploadPrompt').classList.add('hidden');
+        document.getElementById('fileInfo').classList.remove('hidden');
+        document.getElementById('uploadButton').classList.remove('hidden');
+    }
+    
+    function clearFile() {
+        selectedFile = null;
+        document.getElementById('fileInput').value = '';
+        document.getElementById('uploadPrompt').classList.remove('hidden');
+        document.getElementById('fileInfo').classList.add('hidden');
+        document.getElementById('uploadButton').classList.add('hidden');
+    }
+    
+    async function uploadVideo() {
+        if (!selectedFile) return;
+        
+        // Hide upload, show processing
+        document.getElementById('uploadButton').classList.add('hidden');
+        document.getElementById('dropZone').classList.add('hidden');
+        document.getElementById('processingStatus').classList.remove('hidden');
+        
+        // Update step 1
+        updateStep('step1', '✓', 'text-success');
+        
+        // Create form data
+        const formData = new FormData();
+        formData.append('video', selectedFile);
+        
+        try {
+            // Upload
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                jobId = data.job_id;
+                updateStep('step1', '✅', 'text-success');
+                updateStep('step2', '⏳', 'text-primary');
+                
+                // Poll for status
+                pollStatus();
+            } else {
+                showError(data.error || 'Upload failed');
+            }
+        } catch (error) {
+            showError('Upload failed: ' + error.message);
+        }
+    }
+    
+    let streamStarted = false;
+    
+    async function pollStatus() {
+        if (!jobId) return;
+        
+        try {
+            const response = await fetch(`/api/status/${jobId}`);
+            const data = await response.json();
+            
+            // Update UI based on status
+            if (data.status === 'processing') {
+                updateStep('step2', '✓', 'text-success');
+                updateStep('step3', '⏳', 'text-primary');
+                updateStep('step4', '⏳', 'text-primary');
+                document.getElementById('statusMessage').textContent = data.message;
+                
+                // Start live stream if not already started
+                if (!streamStarted) {
+                    startLiveStream();
+                    streamStarted = true;
+                }
+                
+                // Update progress bar
+                const progress = data.progress || 0;
+                document.getElementById('progressBar').style.width = `${progress}%`;
+                document.getElementById('progressPercent').textContent = `${progress}%`;
+                
+                // Update frame counter
+                if (data.processed_frames && data.total_frames) {
+                    document.getElementById('frameCounter').textContent = 
+                        `Frame: ${data.processed_frames} / ${data.total_frames}`;
+                }
+                
+                // Continue polling
+                setTimeout(pollStatus, 500);  // Poll faster for real-time updates
+            } else if (data.status === 'completed') {
+                updateStep('step2', '✅', 'text-success');
+                updateStep('step3', '✅', 'text-success');
+                updateStep('step4', '✅', 'text-success');
+                document.getElementById('progressBar').style.width = '100%';
+                document.getElementById('progressPercent').textContent = '100%';
+                
+                // Update stream status
+                const streamStatus = document.getElementById('streamStatus');
+                streamStatus.innerHTML = `
+                    <span class="w-2 h-2 bg-green-500 rounded-full"></span>
+                    Processing Complete
+                `;
+                
+                // Show results
+                setTimeout(() => {
+                    document.getElementById('processingStatus').classList.add('hidden');
+                    document.getElementById('results').classList.remove('hidden');
+                    document.getElementById('viewResultLink').href = `/detail/${data.output_name}`;
+                    
+                    // Add button to go back to dashboard
+                    const resultsDiv = document.getElementById('results');
+                    const existingButton = resultsDiv.querySelector('a[href="/"]');
+                    if (!existingButton) {
+                        const backButton = `
+                            <a href="/" class="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium 
+                                       transition-colors">
+                                Back to Dashboard
+                            </a>
+                        `;
+                        resultsDiv.querySelector('.flex').insertAdjacentHTML('beforeend', backButton);
+                    }
+                }, 2000);
+            } else if (data.status === 'failed') {
+                showError(data.message);
+                // Update stream status
+                const streamStatus = document.getElementById('streamStatus');
+                streamStatus.innerHTML = `
+                    <span class="w-2 h-2 bg-red-500 rounded-full"></span>
+                    Processing Failed
+                `;
+            } else {
+                // Continue polling
+                setTimeout(pollStatus, 1000);
+            }
+        } catch (error) {
+            console.error('Status poll error:', error);
+            setTimeout(pollStatus, 1000);
+        }
+    }
+    
+    function startLiveStream() {
+        const streamImg = document.getElementById('liveStream');
+        const streamLoading = document.getElementById('streamLoading');
+        
+        // Set stream source
+        streamImg.src = `/api/stream/${jobId}`;
+        
+        // Handle stream loaded
+        streamImg.onload = function() {
+            streamLoading.style.display = 'none';
+            streamImg.style.display = 'block';
+        };
+        
+        // Handle stream errors
+        streamImg.onerror = function() {
+            console.error('Stream error, will retry...');
+            setTimeout(() => {
+                if (streamImg.src) {
+                    // Add timestamp to force refresh
+                    streamImg.src = `/api/stream/${jobId}?t=${Date.now()}`;
+                }
+            }, 1000);
+        };
+    }
+    
+    function updateStep(stepId, icon, textClass) {
+        const step = document.getElementById(stepId);
+        step.querySelector('div').textContent = icon;
+        step.className = `flex items-center gap-2 ${textClass}`;
+    }
+    
+    function showError(message) {
+        document.getElementById('statusTitle').textContent = 'Processing Failed';
+        document.getElementById('statusMessage').textContent = message;
+        document.getElementById('progressBar').classList.remove('bg-gradient-to-r', 'from-primary', 'to-cyan-300');
+        document.getElementById('progressBar').classList.add('bg-critical');
+    }
+    
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+</script>
+{% endblock %}
+
