@@ -16,7 +16,11 @@ VitalSight is an intelligent surveillance system that combines cutting-edge comp
 - **Severe Injury**: Identifies traumatic injuries requiring immediate medical response
 
 ### 🤖 **AI-Powered Situation Analysis**
+<<<<<<< HEAD
 - **Google Gemini 2.0 Flash (Experimental)**: Generates detailed, context-aware incident reports
+=======
+- **Google Gemini 2.5 Flash Integration**: Generates detailed, context-aware incident reports
+>>>>>>> f0c05c63b491014ee112444cd38f9bf3186448a0
 - **Vision Language Model (VLM)**: Analyzes video frames to provide human-readable situation assessments
 - **Priority Classification**: Automatically categorizes incidents (LOW, MEDIUM, HIGH, CRITICAL)
 - **Actionable Recommendations**: Each report includes specific response protocols
@@ -67,7 +71,7 @@ VitalSight Architecture
 │   └── Frame callback for live streaming
 │
 ├── 🤖 AI Analysis Layer (gemini_reporter.py)
-│   ├── Gemini 2.0 Flash VLM
+│   ├── Gemini 2.54 Flash VLM
 │   ├── Async report generation (threading)
 │   ├── Priority classification
 │   └── Evidence frame capture
@@ -277,7 +281,7 @@ runtime:
 
 - **Deep Learning**: PyTorch, YOLO 11 (Ultralytics)
 - **Computer Vision**: OpenCV, MediaPipe, NumPy
-- **AI Analysis**: Google Gemini 2.0 Flash (Vision Language Model)
+- **AI Analysis**: Google Gemini 2.5 Flash (Vision Language Model)
 - **Web Framework**: Flask, Tailwind CSS
 - **Video Processing**: H.264 codec, MJPEG streaming
 - **Authentication**: Flask sessions
