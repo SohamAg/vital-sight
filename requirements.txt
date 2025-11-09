@@ -16,6 +16,9 @@ pyyaml
 # --- Pose estimation ---
 mediapipe
 
+# --- AI/VLM reporting ---
+google-generativeai
+
 # --- Optional: future extensions (comment out if not needed) ---
 # requests         # for HTTP event emitters or alerts
 # flask            # if you add a local dashboard/API

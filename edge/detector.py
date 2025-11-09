@@ -64,7 +64,7 @@ class VitalSightDetector:
         elif motion_value <= 2:
             event, confidence = "immobility", 0.8
         else:
-            event, confidence = "respiratory_distress", 0.6
+            event, confidence = "distress", 0.6
 
         return event, confidence
 
