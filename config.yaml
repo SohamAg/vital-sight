@@ -20,16 +20,9 @@ profile: webcam         # webcam|cctv
 
 logic:
   fall:
-    v_drop: 0.05        # normalized vertical speed threshold
-    width_height_ratio: 1.8
-    instant_drop: 0.06
-    horizontal_gain: 0.4
-    w_drop: 0.35
-    w_instant: 0.25
-    w_orient: 0.15
-    w_horizontal: 0.15
-    w_posture: 0.1
-    debounce_f: 5
+    w_box: 0.7
+    w_pose: 0.3
+    debounce_f: 2
   resp:
     window_s: 18
     rr_min: 8
@@ -46,14 +39,20 @@ logic:
     crowd_count: 3
     debounce_f: 6
   fire:
-    hsv_ratio: 0.015
-    persist_f: 5
-    sat_min: 90
-    val_min: 140
-    person_margin: 6
-    median_blur: 3
-    morph_kernel: 3
-    boost: 1.2
+    detection_mode: hsv
+    yolo_model: yolo11n.pt
+    yolo_classes: []
+    yolo_conf: 0.35
+    yolo_iou: 0.5
+    persist_f: 8
+    hsv_ratio: 0.035
+    sat_min: 120
+    val_min: 180
+    person_margin: 8
+    median_blur: 5
+    morph_kernel: 5
+    boost: 1.0
+    min_ratio: 0.008
   severe_injury:
     motion_eps: 8.0
     lying_min: 0.4
@@ -63,8 +62,10 @@ logic:
     debounce_f: 10
 
 hysteresis:
-  enter: 0.45
-  exit: 0.30
+  enter: 0.50
+  exit: 0.35
+  fall_enter: 0.65
+  fall_exit: 0.40
 
 cooldowns:
   per_camera_s: 45

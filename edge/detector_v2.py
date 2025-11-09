@@ -55,10 +55,24 @@ class VitalSightV2:
         self.input_size = self.cfg["runtime"]["input_size"]
         self.profile = self.cfg.get("profile","webcam")
 
+        # Fire detection via YOLO classes (if enabled)
+        fire_cfg = self.cfg["logic"]["fire"]
+        self.fire_mode = fire_cfg.get("detection_mode", "yolo")  # "hsv" or "yolo"
+        self.fire_model = None
+        self.fire_classes = []
+        if self.fire_mode == "yolo":
+            fire_weights = fire_cfg.get("yolo_model", "yolo11n.pt")
+            self.fire_model = YOLO(fire_weights)
+            self.fire_model.to(device)
+            self.fire_classes = fire_cfg.get("yolo_classes", [])
+
         # debouncers per label
         hys = self.cfg["hysteresis"]
         self.db = {
-            "fall": Debouncer(hys["enter"], hys["exit"], self.cfg["logic"]["fall"]["debounce_f"]),
+            # allow fall to have its own enter/exit if provided
+            "fall": Debouncer(hys.get("fall_enter", hys["enter"]),
+                              hys.get("fall_exit", hys["exit"]),
+                              self.cfg["logic"]["fall"]["debounce_f"]),
             "respiratory_distress": Debouncer(hys["enter"], hys["exit"], self.cfg["logic"]["resp"]["debounce_f"]),
             "violence_panic": Debouncer(hys["enter"], hys["exit"], self.cfg["logic"]["violence"]["debounce_f"]),
             "fire": Debouncer(hys["enter"], hys["exit"], self.cfg["logic"]["fire"]["persist_f"]),
@@ -97,11 +111,10 @@ class VitalSightV2:
                 conf=self.conf,
                 iou=self.iou,
                 classes=self.classes,
-                half=(self.device == "cuda"),   # ✅ add this line
+                half=(self.device == "cuda"),   # run inference in FP16 safely
                 verbose=False
             )[0]
         xyxy = res.boxes.xyxy
-        cls = res.boxes.cls
         if xyxy is None or len(xyxy)==0:
             self.prev_person_boxes = self.person_boxes.copy()
             self.person_boxes = []
@@ -129,48 +142,32 @@ class VitalSightV2:
             cs.append(((x1+x2)/2.0, (y1+y2)/2.0))
         return cs
 
-    def _pose_stats(self, pose_feats):
-        if not pose_feats:
-            return {"count": 0, "lying": 0.0, "hand_chest": 1.0, "hand_chest_min": 1.0, "torso_vertical": 1.0}
-        lying = np.mean([np.clip(f.get("lying_score", 0.0), 0.0, 1.0) for f in pose_feats])
-        hand_vals = [np.clip(f.get("hand_chest", 1.0), 0.0, 1.0) for f in pose_feats]
-        hand = np.mean(hand_vals)
-        hand_min = np.min(hand_vals)
-        torso = np.mean([np.clip(f.get("torso_angle", 1.0), 0.0, 1.0) for f in pose_feats])
-        return {
-            "count": len(pose_feats),
-            "lying": float(lying),
-            "hand_chest": float(hand),
-            "hand_chest_min": float(hand_min),
-            "torso_vertical": float(torso)
-        }
-
-    def _vertical_drop(self, prev_centers, curr_centers):
-        if not prev_centers or not curr_centers:
-            return 0.0
-        drops = []
-        for (px, py) in prev_centers:
-            dmin = min(abs(py - cy) for (_, cy) in curr_centers)
-            drops.append(dmin / float(self.input_size))
-        return float(np.mean(drops)) if drops else 0.0
-
-    def _max_center_drop(self, prev_centers, curr_centers):
-        if not prev_centers or not curr_centers:
-            return 0.0
-        max_drop = 0.0
-        for px, py in prev_centers:
-            best = None
-            for cx, cy in curr_centers:
-                dy = cy - py
-                if dy <= 0:
+    def _match_boxes(self, prev_boxes, curr_boxes):
+        if not prev_boxes or not curr_boxes:
+            return []
+        max_dist = float(self.cfg["logic"]["fall"].get("match_dist_norm", 0.35))
+        matches = []
+        used_curr = set()
+        for i, pb in enumerate(prev_boxes):
+            pcx = (pb[0] + pb[2]) * 0.5
+            pcy = (pb[1] + pb[3]) * 0.5
+            best_j = -1
+            best_dist = None
+            for j, cb in enumerate(curr_boxes):
+                if j in used_curr:
                     continue
-                dist = math.hypot(px - cx, py - cy)
-                if best is None or dist < best:
-                    best = dist
-                    drop_norm = dy / float(self.input_size)
-                    if drop_norm > max_drop:
-                        max_drop = drop_norm
-        return float(max_drop)
+                ccx = (cb[0] + cb[2]) * 0.5
+                ccy = (cb[1] + cb[3]) * 0.5
+                dist = math.hypot(pcx - ccx, pcy - ccy) / float(self.input_size)
+                if dist > max_dist:
+                    continue
+                if best_dist is None or dist < best_dist:
+                    best_dist = dist
+                    best_j = j
+            if best_j >= 0:
+                used_curr.add(best_j)
+                matches.append((i, best_j))
+        return matches
 
     def _box_orientation_score(self, boxes):
         if not boxes:
@@ -200,64 +197,86 @@ class VitalSightV2:
 
     def _fire_score(self, frame, person_boxes):
         logic = self.cfg["logic"]["fire"]
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        sat_min = logic.get("sat_min", 120)
-        val_min = logic.get("val_min", 170)
-        lower1 = np.array([0, sat_min, val_min], dtype=np.uint8)
-        upper1 = np.array([25, 255, 255], dtype=np.uint8)
-        lower2 = np.array([160, sat_min, val_min], dtype=np.uint8)
-        upper2 = np.array([179, 255, 255], dtype=np.uint8)
-        mask = cv2.inRange(hsv, lower1, upper1) | cv2.inRange(hsv, lower2, upper2)
+        if self.fire_mode == "yolo" and self.fire_model is not None:
+            res = self.fire_model.predict(
+                frame,
+                imgsz=self.input_size,
+                conf=logic.get("yolo_conf", 0.4),
+                iou=logic.get("yolo_iou", 0.5),
+                classes=self.fire_classes if self.fire_classes else None,
+                half=(self.device == "cuda"),
+                verbose=False
+            )[0]
+            if res.boxes is None or len(res.boxes) == 0:
+                return 0.0
+            max_conf = float(res.boxes.conf.max().cpu())
+            return min(1.0, max_conf)
+        else:
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            sat_min = logic.get("sat_min", 120)
+            val_min = logic.get("val_min", 170)
+            lower1 = np.array([0, sat_min, val_min], dtype=np.uint8)
+            upper1 = np.array([25, 255, 255], dtype=np.uint8)
+            lower2 = np.array([160, sat_min, val_min], dtype=np.uint8)
+            upper2 = np.array([179, 255, 255], dtype=np.uint8)
+            mask = cv2.inRange(hsv, lower1, upper1) | cv2.inRange(hsv, lower2, upper2)
 
-        median_sz = int(logic.get("median_blur", 3))
-        if median_sz > 1:
-            if median_sz % 2 == 0:
-                median_sz += 1
-            mask = cv2.medianBlur(mask, median_sz)
+            median_sz = int(logic.get("median_blur", 3))
+            if median_sz > 1:
+                if median_sz % 2 == 0:
+                    median_sz += 1
+                mask = cv2.medianBlur(mask, median_sz)
 
-        kernel_sz = int(logic.get("morph_kernel", 3))
-        if kernel_sz > 1:
-            kernel = np.ones((kernel_sz, kernel_sz), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            kernel_sz = int(logic.get("morph_kernel", 3))
+            if kernel_sz > 1:
+                kernel = np.ones((kernel_sz, kernel_sz), np.uint8)
+                mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-        if person_boxes:
-            ppl_mask = np.zeros(mask.shape, dtype=np.uint8)
-            margin = int(logic.get("person_margin", 8))
-            for x1, y1, x2, y2 in person_boxes:
-                x1n = max(0, int(x1) - margin)
-                y1n = max(0, int(y1) - margin)
-                x2n = min(mask.shape[1] - 1, int(x2) + margin)
-                y2n = min(mask.shape[0] - 1, int(y2) + margin)
-                cv2.rectangle(ppl_mask, (x1n, y1n), (x2n, y2n), 255, -1)
-            mask = cv2.bitwise_and(mask, cv2.bitwise_not(ppl_mask))
+            if person_boxes:
+                ppl_mask = np.zeros(mask.shape, dtype=np.uint8)
+                margin = int(logic.get("person_margin", 8))
+                for x1, y1, x2, y2 in person_boxes:
+                    x1n = max(0, int(x1) - margin)
+                    y1n = max(0, int(y1) - margin)
+                    x2n = min(mask.shape[1] - 1, int(x2) + margin)
+                    y2n = min(mask.shape[0] - 1, int(y2) + margin)
+                    cv2.rectangle(ppl_mask, (x1n, y1n), (x2n, y2n), 255, -1)
+                mask = cv2.bitwise_and(mask, cv2.bitwise_not(ppl_mask))
 
-        fire_px = float(cv2.countNonZero(mask))
-        ratio = fire_px / float(mask.size)
-        boost = float(logic.get("boost", 1.0))
-        return float(min(1.0, boost * ratio / max(1e-6, logic["hsv_ratio"])))
+            fire_px = float(cv2.countNonZero(mask))
+            ratio = fire_px / float(mask.size)
+            min_ratio = float(logic.get("min_ratio", 0.0))
+            if ratio < min_ratio:
+                return 0.0
+            boost = float(logic.get("boost", 1.0))
+            return float(min(1.0, boost * ratio / max(1e-6, logic["hsv_ratio"])))
 
     def _fall_score(self, prev_centers, curr_centers, prev_boxes, curr_boxes, pose_stats):
         if not curr_boxes:
             return 0.0
-
         cfg = self.cfg["logic"]["fall"]
-        drop = self._vertical_drop(prev_centers, curr_centers)
-        instant_drop = self._max_center_drop(prev_centers, curr_centers)
-        orient = self._box_orientation_score(curr_boxes)
-        horizontal = self._box_horizontal_score(curr_boxes)
-        lying = pose_stats["lying"]
-
-        drop_norm = drop / max(1e-6, cfg["v_drop"])
-        instant_norm = instant_drop / max(1e-6, cfg.get("instant_drop", 0.06))
-        orient_norm = orient  # already 0..1
-        horizontal_norm = horizontal / max(1e-6, cfg.get("horizontal_gain", 0.4))
-
+        
+        # Box aspect ratio (width > height)
+        box_scores = []
+        for x1, y1, x2, y2 in curr_boxes:
+            w = abs(x2 - x1)
+            h = abs(y2 - y1)
+            if h > 0 and w > h:
+                box_scores.append(1.0)
+            else:
+                box_scores.append(0.0)
+        
+        box_fall = float(np.mean(box_scores)) if box_scores else 0.0
+        
+        # Pose-based: shoulders below hips/feet
+        pose_fall = 0.0
+        if pose_stats.get("count", 0) > 0:
+            pose_fall = pose_stats.get("lying", 0.0)
+        
+        # Combine
         score = (
-            cfg.get("w_drop", 0.35) * min(1.0, drop_norm) +
-            cfg.get("w_instant", 0.25) * min(1.0, instant_norm) +
-            cfg.get("w_orient", 0.15) * min(1.0, orient_norm) +
-            cfg.get("w_horizontal", 0.15) * min(1.0, horizontal_norm) +
-            cfg.get("w_posture", 0.1) * lying
+            cfg.get("w_box", 0.7) * box_fall +
+            cfg.get("w_pose", 0.3) * pose_fall
         )
         return float(min(1.0, score))
 
@@ -449,7 +468,7 @@ class VitalSightV2:
                 cv2.putText(annotated, f"{self.fps:5.1f} FPS", (12, y0 + 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
             if display:
-                cv2.imshow(window_name, annotated)
+                cv2.imshow("VitalSight v2", annotated)
                 if seek["active"] and not seek["pending"]:
                     pos = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
                     cv2.setTrackbarPos("Seek", window_name, min(seek["max"], pos))
@@ -463,6 +482,22 @@ class VitalSightV2:
         if display:
             cv2.destroyWindow(window_name)
         cv2.destroyAllWindows()
+
+    def _pose_stats(self, pose_feats):
+        if not pose_feats:
+            return {"count": 0, "lying": 0.0, "hand_chest": 1.0, "hand_chest_min": 1.0, "torso_vertical": 1.0}
+        lying = np.mean([np.clip(f.get("lying_score", 0.0), 0.0, 1.0) for f in pose_feats])
+        hand_vals = [np.clip(f.get("hand_chest", 1.0), 0.0, 1.0) for f in pose_feats]
+        hand = np.mean(hand_vals)
+        hand_min = np.min(hand_vals)
+        torso = np.mean([np.clip(f.get("torso_angle", 1.0), 0.0, 1.0) for f in pose_feats])
+        return {
+            "count": len(pose_feats),
+            "lying": float(lying),
+            "hand_chest": float(hand),
+            "hand_chest_min": float(hand_min),
+            "torso_vertical": float(torso)
+        }
 
     def _draw_pose(self, canvas, kp_map, scale_x, scale_y):
         h, w = canvas.shape[:2]
