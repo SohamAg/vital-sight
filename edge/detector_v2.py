@@ -6,6 +6,7 @@ from ultralytics import YOLO
 import torch
 from .pose import PoseEstimator, keypose_feats
 from .gemini_reporter import GeminiReporter
+from .twilio_alerter import TwilioAlerter
 
 POSE_SKELETON = [
     (5, 7), (7, 9), (6, 8), (8, 10),  # arms
@@ -37,7 +38,7 @@ class Debouncer:
         return self.active, self.score_smooth
 
 class VitalSightV2:
-    def __init__(self, cfg_path="config.yaml", gemini_api_key=None):
+    def __init__(self, cfg_path="config.yaml", gemini_api_key=None, twilio_config=None):
         with open(cfg_path, "r") as f:
             self.cfg = yaml.safe_load(f)
         
@@ -49,6 +50,19 @@ class VitalSightV2:
                 print("[INFO] Gemini VLM reporting enabled")
             except Exception as e:
                 print(f"[WARNING] Failed to initialize Gemini reporter: {e}")
+        
+        # Initialize Twilio alerter if config provided
+        self.twilio_alerter = None
+        if twilio_config:
+            try:
+                self.twilio_alerter = TwilioAlerter(
+                    account_sid=twilio_config.get('account_sid'),
+                    auth_token=twilio_config.get('auth_token'),
+                    from_number=twilio_config.get('from_number'),
+                    to_number=twilio_config.get('to_number')
+                )
+            except Exception as e:
+                print(f"[WARNING] Failed to initialize Twilio alerter: {e}")
 
         y = self.cfg["yolo"]
         device = self._resolve_device(self.cfg["runtime"]["device"])
@@ -787,33 +801,43 @@ class VitalSightV2:
                 if is_on:
                     active.append((k, float(sm)))
 
-            # Handle first detections and Gemini reporting (ASYNC - doesn't pause video)
-            if self.gemini_reporter and active:
+            # Handle first detections, Gemini reporting, and Twilio alerts
+            if active:
                 for category, confidence in active:
                     # Check if this is the first detection for this category
                     if category not in self.first_detections:
                         self.first_detections[category] = {
                             "reported": False,
+                            "alerted": False,
                             "frame": orig.copy(),
                             "confidence": confidence
                         }
                     
-                    # If not yet reported, trigger Gemini analysis in background
+                    # If not yet reported, trigger actions
                     if not self.first_detections[category]["reported"]:
                         print(f"\n[FIRST DETECTION] {category} detected at confidence {confidence:.2%}")
                         
-                        # Generate report asynchronously - returns immediately, video continues
-                        try:
-                            self.gemini_reporter.generate_report_async(
-                                self.first_detections[category]["frame"],
-                                category,
-                                confidence,
-                                self.source_path
-                            )
-                            self.first_detections[category]["reported"] = True
-                        except Exception as e:
-                            print(f"[ERROR] Failed to start report generation: {e}")
-                            self.first_detections[category]["reported"] = True  # Mark as attempted
+                        # Send Twilio alert if enabled
+                        if self.twilio_alerter and not self.first_detections[category]["alerted"]:
+                            try:
+                                self.twilio_alerter.send_alert(category, confidence, self.source_path)
+                                self.first_detections[category]["alerted"] = True
+                            except Exception as e:
+                                print(f"[ERROR] Failed to send Twilio alert: {e}")
+                        
+                        # Generate Gemini report if enabled
+                        if self.gemini_reporter:
+                            try:
+                                self.gemini_reporter.generate_report_async(
+                                    self.first_detections[category]["frame"],
+                                    category,
+                                    confidence,
+                                    self.source_path
+                                )
+                                self.first_detections[category]["reported"] = True
+                            except Exception as e:
+                                print(f"[ERROR] Failed to start report generation: {e}")
+                                self.first_detections[category]["reported"] = True  # Mark as attempted
 
             annotated = orig
 

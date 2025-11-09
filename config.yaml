@@ -12,7 +12,7 @@ pose:
   min_aspect: 1.1
 
 runtime:
-  device: cuda          # auto|cuda|cpu
+  device: cpu          # auto|cuda|cpu (use 'cpu' for Mac, 'cuda' for NVIDIA GPU)
   input_size: 640
   show_fps: true
   use_letterbox: true   # preserve aspect ratio (recommended)

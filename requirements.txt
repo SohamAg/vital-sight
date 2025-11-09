@@ -22,8 +22,12 @@ google-generativeai
 # --- Web Dashboard ---
 flask
 
+# --- Twilio Alerts ---
+twilio
+
+# --- ElevenLabs Text-to-Speech ---
+elevenlabs
+
 # --- Optional: future extensions (comment out if not needed) ---
 # requests         # for HTTP event emitters or alerts
-# flask            # if you add a local dashboard/API
-# twilio           # if you add voice call alerts
 # elevenlabs       # if you use ElevenLabs TTS
