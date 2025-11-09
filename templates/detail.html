@@ -107,10 +107,16 @@
                     
                     <!-- Situation Report -->
                     <div class="mb-3">
-                        <p class="text-sm font-medium text-gray-300 mb-2">Situation:</p>
-                        <p class="text-sm text-gray-400 leading-relaxed">
-                            {{ report.situation }}
-                        </p>
+                        <p class="text-sm font-medium text-gray-300 mb-2">Situation Report:</p>
+                        <div class="text-sm text-gray-300 leading-relaxed prose prose-invert prose-sm max-w-none
+                                    prose-headings:text-white prose-headings:font-bold
+                                    prose-p:text-gray-300 prose-p:my-2
+                                    prose-strong:text-white prose-strong:font-semibold
+                                    prose-ul:my-2 prose-ul:text-gray-300
+                                    prose-li:my-1
+                                    prose-code:text-primary prose-code:bg-gray-800 prose-code:px-1 prose-code:rounded">
+                            {{ report.situation_html | safe }}
+                        </div>
                     </div>
                     
                     <!-- Evidence Frame -->
