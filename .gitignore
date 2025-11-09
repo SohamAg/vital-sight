@@ -34,7 +34,11 @@ ENV/
 
 # Project specific
 alerts/
-sample_videos/
+runs/
+.env
+data/samples/
+
+# media
 *.mp4
 *.avi
 *.mov

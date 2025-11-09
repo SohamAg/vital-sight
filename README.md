@@ -1,91 +1,92 @@
-# Vital Sight - CCTV Distress Detection System
+## VitalSight Core — On-device Distress Detection (CLI + UI)
 
-A real-time distress detection system that analyzes CCTV footage to identify people in distress (falls, abnormal poses, unusual behavior) and sends notifications.
+This is a small, modular, CPU-first pipeline that detects human distress using:
 
-## Features
+- YOLO (person boxes) → MediaPipe Pose (features) → Temporal FSM (events)
+- Live overlays in a window and one-line JSON events to stdout
+- Optional MP4 recording of the annotated frames
+- Simple Tkinter UI to test webcam or any video file
 
-- **Real-time Fall Detection**: Detects when a person falls using pose estimation
-- **Abnormal Pose Detection**: Identifies unusual body positions indicating distress
-- **Motion Analysis**: Tracks movement patterns to detect irregularities
-- **Alert System**: Sends notifications when distress is detected
-- **Video Processing**: Supports multiple video formats and live CCTV streams
+No alerts, websockets, VLM, or servers in this core—by design.
 
-## Technology Stack
-
-- **OpenCV**: Video processing and computer vision
-- **MediaPipe**: Real-time pose estimation
-- **YOLOv8**: Person detection (optional enhancement)
-- **Python 3.8+**: Core programming language
-- **NumPy**: Numerical computations
-
-## Installation
+### Install
 
 ```bash
-# Install required dependencies
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+# source .venv/bin/activate
+
 pip install -r requirements.txt
-
-# For GPU acceleration (optional)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+cp src/configs/example.env .env
 ```
 
-## Usage
-
-### Basic Usage
+### Run — CLI
 
 ```bash
-# Process a video file
-python main.py --input sample_videos/cctv_footage.mp4
+# Webcam
+python -m src.cli.main --source webcam
 
-# Use webcam
-python main.py --input 0
+# Video file
+python -m src.cli.main --source file --path ./data/samples/test.mp4
 
-# Process CCTV stream
-python main.py --input rtsp://camera_ip:port/stream
+# Headless + save annotated MP4
+python -m src.cli.main --source file --path ./data/samples/test.mp4 --no-display --save-debug ./runs/annotated.mp4
 ```
 
-### With Custom Settings
+### Run — Simple UI
 
 ```bash
-python main.py --input video.mp4 --confidence 0.7 --notification email
+python -m src.ui.app
+```
+Use the UI to select webcam or choose a video file, start/stop the run, and optionally save an annotated MP4. Events appear in the log area.
+
+### Configuration (.env)
+
+See `src/configs/example.env` for defaults (input sizes, YOLO model/conf, thresholds):
+
+- `ANGLE_THR_DEG` (supine if torso angle ≥ this, 0°=vertical, 90°=horizontal)
+- `DROP_THR_PX` (sudden centroid Δy within 0.5s)
+- `MOTION_THR` (mean landmark Δ below this => idle)
+- `IMMOBILE_T_SEC` (consecutive idle seconds => immobile)
+- `ALERT_SCORE_THR` (event emission threshold)
+
+### Event JSON (stdout)
+
+Each event is a compact one-line JSON, example:
+
+```json
+{"cam_id":"cam-0","track_id":"p-0","t0":12.3,"t1":13.4,"type":"collapse","score":0.83,"cues":["sudden_drop","supine_posture","immobile_8.2s"]}
 ```
 
-## How It Works
+### FAQ
 
-1. **Person Detection**: Identifies people in the video frame
-2. **Pose Estimation**: Tracks 33 body keypoints using MediaPipe
-3. **Distress Analysis**: 
-   - Fall detection based on torso angle and position
-   - Abnormal pose detection (lying down for extended periods)
-   - Sudden movement changes
-4. **Alert Generation**: Sends notifications via email/SMS/desktop
+- Why YOLO + Pose + Temporal?  
+  YOLO robustly finds people. Pose extracts physical cues like torso orientation and motion. A short-memory temporal model reduces false positives from momentary noise.
 
-## Detection Criteria
+- Does this repo send alerts or run a server?  
+  No. The core emits events locally. Alerting/WS/VLM can be layered later.
 
-### Fall Detection
-- Rapid vertical displacement of body keypoints
-- Horizontal body orientation (lying down)
-- Sudden change in center of mass
+- GPU required?  
+  No. It runs on CPU; if CUDA is available, Ultralytics may use it automatically.
 
-### Distress Signals
-- Person lying motionless for > 30 seconds
-- Abnormal pose angles (< 45° from horizontal)
-- Erratic movement patterns
-- No movement detected for extended periods
+### Layout
 
-## Configuration
+```
+src/
+  common/      # pydantic schemas, small utils
+  ingest/      # webcam/file reader normalized to size & FPS
+  detect/      # YOLOv8 person detector + simple ID association
+  pose/        # MediaPipe Pose features (torso angle, motion energy)
+  reasoner/    # temporal FSM rule engine
+  viz/         # overlays (boxes, features, cue badges, HUD)
+  cli/         # CLI main
+  ui/          # Tkinter app
+```
 
-Edit `config.py` to customize:
-- Detection thresholds
-- Notification methods
-- Video processing parameters
-- Alert sensitivity
+### Notes
 
-## Sample Data
-
-Sample CCTV footage will be downloaded automatically on first run, or you can add your own videos to the `sample_videos/` directory.
-
-## Requirements
-
-- Python 3.8+
-- Webcam or video file for testing
-- Internet connection (for downloading sample videos and models)
+- Coordinates are pixel-space in the working (resized) frame. Origin is top-left.
+- Timestamps are monotonic seconds since process start.
+- Clean shutdown: capture release, window destruction, and writer close are handled.

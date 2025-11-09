@@ -9,3 +9,5 @@ torch>=2.0.0
 torchvision>=0.15.0
 plyer>=2.1.0
 pydub>=0.25.1
+pydantic>=2.4
+python-dotenv>=1.0
