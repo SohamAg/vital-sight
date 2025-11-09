@@ -43,10 +43,38 @@ def find_videos(directory, exclude_dirs=None):
     
     return sorted(videos)
 
+def clean_output_directories():
+    """Clean processed videos and reports before batch processing"""
+    import shutil
+    
+    processed_dir = Path("data/processed")
+    reports_dir = Path("data/demo_reports")
+    
+    print("\n🗑️  CLEANING OUTPUT DIRECTORIES...")
+    
+    # Clean processed videos
+    if processed_dir.exists():
+        for file in processed_dir.glob("*"):
+            if file.is_file():
+                file.unlink()
+                print(f"   Deleted: {file.name}")
+        print(f"✓ Cleaned: data/processed/")
+    
+    # Clean reports
+    if reports_dir.exists():
+        for file in reports_dir.glob("*"):
+            if file.is_file():
+                file.unlink()
+                print(f"   Deleted: {file.name}")
+        print(f"✓ Cleaned: data/demo_reports/")
+    
+    print()
+
 def process_batch(input_dir="data/demo_clips", 
                  exclude_dirs=None,
                  gemini_api_key=None,
-                 config_path="config.yaml"):
+                 config_path="config.yaml",
+                 clean_first=True):
     """
     Process all videos in batch mode.
     
@@ -55,6 +83,7 @@ def process_batch(input_dir="data/demo_clips",
         exclude_dirs: Subdirectories to exclude (e.g., ['clips'])
         gemini_api_key: Google Gemini API key for report generation
         config_path: Path to config file
+        clean_first: If True, delete all existing processed videos and reports
     """
     if exclude_dirs is None:
         exclude_dirs = ['clips']
@@ -67,7 +96,12 @@ def process_batch(input_dir="data/demo_clips",
     print(f"Gemini Reporting: {'ENABLED' if gemini_api_key else 'DISABLED'}")
     print(f"Output Videos: data/processed/")
     print(f"Output Reports: data/demo_reports/")
+    print(f"Clean First: {'YES' if clean_first else 'NO'}")
     print("\n" + "=" * 80)
+    
+    # Clean output directories if requested
+    if clean_first:
+        clean_output_directories()
     
     # Find all videos
     videos = find_videos(input_dir, exclude_dirs)
@@ -76,7 +110,7 @@ def process_batch(input_dir="data/demo_clips",
         print(f"\n[ERROR] No videos found in {input_dir}")
         return
     
-    print(f"\nFound {len(videos)} video(s) to process:")
+    print(f"Found {len(videos)} video(s) to process:")
     for i, video in enumerate(videos, 1):
         print(f"  {i}. {video.name}")
     print("\n" + "=" * 80)
@@ -174,6 +208,11 @@ def main():
         action="store_true",
         help="Disable Gemini report generation"
     )
+    parser.add_argument(
+        "--no-clean",
+        action="store_true",
+        help="Don't clean output directories before processing"
+    )
     
     args = parser.parse_args()
     
@@ -185,7 +224,8 @@ def main():
         input_dir=args.input_dir,
         exclude_dirs=args.exclude,
         gemini_api_key=gemini_key,
-        config_path=args.config
+        config_path=args.config,
+        clean_first=not args.no_clean
     )
 
 if __name__ == "__main__":

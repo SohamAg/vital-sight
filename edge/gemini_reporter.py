@@ -52,50 +52,91 @@ class GeminiReporter:
         """
         category_display = self.category_names.get(category, category)
         
-        # Define notification protocols and urgency
-        if category in ["fire", "distress", "severe_injury"]:
-            severity = "CRITICAL"
-            notification = "Authorities will be notified via EMAIL, SMS, and IMMEDIATE PHONE CALL"
-            reason = {
-                "fire": "Fire situations are highly imminent and can rapidly escalate, causing widespread damage and loss of life. Immediate emergency response is required.",
-                "distress": "Respiratory distress can lead to cardiac arrest within minutes. Immediate medical intervention is critical for survival.",
-                "severe_injury": "Severe injuries require immediate medical attention to prevent death or permanent disability. Every second counts in trauma cases."
-            }.get(category, "Immediate response required.")
-        else:  # fall, violence_panic
-            severity = "MEDIUM"
-            notification = "Authorities will be notified via EMAIL and SMS alerts"
-            reason = {
-                "fall": "Falls may result in injuries requiring medical assessment, but immediate life threat is typically lower. Response should be prompt but controlled.",
-                "violence_panic": "Crowd incidents require security response to prevent escalation, but can be managed with coordinated intervention."
-            }.get(category, "Prompt response needed.")
+        # Define priority levels and protocols based on situation type
+        priority_config = {
+            "fall": {
+                "priority": "LOW",
+                "severity": "🟢 LOW PRIORITY",
+                "notification": "Email and SMS to on-site medical staff",
+                "response_time": "15-30 minutes",
+                "reason": "Falls typically require medical assessment but are not immediately life-threatening. Responders should check for injuries but can take measured approach."
+            },
+            "violence_panic": {
+                "priority": "MEDIUM",
+                "severity": "🟡 MEDIUM PRIORITY",
+                "notification": "Email, SMS, and phone alert to security team",
+                "response_time": "5-10 minutes",
+                "reason": "Crowd incidents and violence can escalate quickly. Security response needed to prevent injuries and restore order. Situation is containable with prompt intervention."
+            },
+            "distress": {
+                "priority": "HIGH",
+                "severity": "🟠 HIGH PRIORITY",
+                "notification": "Immediate phone call + SMS to medical emergency team",
+                "response_time": "2-5 minutes",
+                "reason": "Respiratory distress can rapidly deteriorate to cardiac arrest. Immediate medical intervention critical. Every minute without oxygen causes brain damage."
+            },
+            "severe_injury": {
+                "priority": "CRITICAL",
+                "severity": "🔴 CRITICAL",
+                "notification": "Emergency phone call + SMS to paramedics + 911 dispatch",
+                "response_time": "< 2 minutes",
+                "reason": "Severe trauma requires immediate life-saving intervention. Blood loss, internal injuries, or head trauma can be fatal within minutes. Emergency medical services must respond immediately."
+            },
+            "fire": {
+                "priority": "CRITICAL",
+                "severity": "🔴 CRITICAL",
+                "notification": "Immediate 911 call + building-wide evacuation alarm + fire department dispatch",
+                "response_time": "< 2 minutes",
+                "reason": "Fire spreads exponentially and produces toxic smoke. Every second counts to prevent loss of life and property. Immediate evacuation and fire suppression required."
+            }
+        }
         
-        source_info = f"from source '{source_path}'" if source_path else ""
-        time_info = f"at {timestamp}" if timestamp else ""
+        config = priority_config.get(category, priority_config["violence_panic"])
         
-        prompt = f"""You are an emergency response analyst. A {category_display.upper()} situation has been detected in this frame {source_info} {time_info} with {confidence:.1%} confidence.
+        source_info = f"from {source_path}" if source_path else "from surveillance camera"
+        time_info = f"at {timestamp}" if timestamp else "just now"
+        
+        prompt = f"""You are an emergency response analyst providing a detailed incident report. 
 
-**Your task:** Describe EXACTLY what is happening in this frame as if you were narrating it to emergency responders over the phone or writing it in an urgent email. Be specific, clear, and factual.
+**INCIDENT DETECTED:**
+Type: {category_display.upper()}
+Priority: {config['priority']}
+Confidence: {confidence:.1%}
+Location: {source_info}
+Time: {time_info}
 
-**Describe:**
-1. What you see happening to the person(s) - their exact position, posture, condition
-2. The immediate environment and any hazards visible
-3. Number of people involved and their states
-4. Any visible injuries, danger signs, or critical elements
-5. What likely just happened or is currently happening
+**YOUR TASK:**
+Provide a comprehensive, actionable report describing EXACTLY what is happening in this image. This report will be sent to emergency responders and decision-makers.
 
-**Critical Guidelines:**
-- Write in present tense as if describing a live situation
-- Use plain, direct language (this may be read aloud to responders)
-- Be specific about locations, positions, and conditions
-- Mention any time-sensitive factors
-- Keep it focused and under 5 sentences
+**REPORT STRUCTURE - Be specific and detailed:**
 
-**NOTIFICATION PROTOCOL:**
-Severity: {severity}
-Protocol: {notification}
-Reason: {reason}
+1. IMMEDIATE SITUATION (2-3 sentences):
+   - Describe what you see happening RIGHT NOW
+   - Exact positions, postures, and conditions of all people visible
+   - Environmental context and setting
 
-Provide your emergency situation report now."""
+2. OBSERVABLE DETAILS (2-3 sentences):
+   - Number of people involved and their states
+   - Specific injuries, hazards, or danger signs visible
+   - Any objects, obstacles, or environmental factors relevant to response
+
+3. ASSESSMENT (1-2 sentences):
+   - What likely just occurred or is currently occurring
+   - Immediate risks to life or safety
+
+4. RECOMMENDED ACTION (1-2 sentences):
+   - Specific steps responders should take immediately upon arrival
+   - Any special equipment, personnel, or precautions needed
+
+**WRITING REQUIREMENTS:**
+- Use present tense (this is happening NOW)
+- Be factual and specific - avoid speculation
+- Include measurable details (distances, numbers, positions)
+- Write clearly for someone who cannot see the image
+- Keep total response to 8-12 sentences
+- Use professional emergency services language
+
+Provide your detailed emergency response report now."""
 
         return prompt
     
@@ -160,15 +201,19 @@ Provide your emergency situation report now."""
             report_filename = f"{video_name}_{category}_report.txt"
             report_path = self.reports_dir / report_filename
             
-            # Determine severity and notification protocol
-            if category in ["fire", "distress", "severe_injury"]:
-                severity = "🔴 CRITICAL"
-                notification_method = "EMAIL + SMS + IMMEDIATE PHONE CALL"
-                response_time = "IMMEDIATE (< 2 minutes)"
-            else:
-                severity = "🟡 MEDIUM"
-                notification_method = "EMAIL + SMS"
-                response_time = "PROMPT (< 10 minutes)"
+            # Determine severity and notification protocol based on category
+            priority_map = {
+                "fall": ("🟢 LOW PRIORITY", "Email + SMS to medical staff", "15-30 minutes"),
+                "violence_panic": ("🟡 MEDIUM PRIORITY", "Email + SMS + Phone to security", "5-10 minutes"),
+                "distress": ("🟠 HIGH PRIORITY", "Immediate phone + SMS to medical team", "2-5 minutes"),
+                "severe_injury": ("🔴 CRITICAL", "Emergency phone + SMS + 911 dispatch", "< 2 minutes"),
+                "fire": ("🔴 CRITICAL", "911 call + Evacuation alarm + Fire dept", "< 2 minutes")
+            }
+            
+            severity, notification_method, response_time = priority_map.get(
+                category, 
+                ("🟡 MEDIUM PRIORITY", "Email + SMS", "5-10 minutes")
+            )
             
             # Save report
             with open(report_path, 'w', encoding='utf-8') as f:

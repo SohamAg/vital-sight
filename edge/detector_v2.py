@@ -580,9 +580,26 @@ class VitalSightV2:
                 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                video_writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-                print(f"[INFO] Saving processed video to: {output_path}")
+                # Use H.264 codec for browser compatibility
+                # Try different codecs in order of preference
+                codecs_to_try = ['avc1', 'h264', 'H264', 'x264', 'X264', 'mp4v']
+                video_writer = None
+                
+                for codec in codecs_to_try:
+                    try:
+                        fourcc = cv2.VideoWriter_fourcc(*codec)
+                        video_writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+                        if video_writer.isOpened():
+                            print(f"[INFO] Saving processed video to: {output_path} (codec: {codec})")
+                            break
+                        video_writer.release()
+                    except:
+                        continue
+                
+                if video_writer is None or not video_writer.isOpened():
+                    print(f"[WARNING] Could not initialize video writer with preferred codecs, using default")
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    video_writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
         
         # Detect source type and hint
         is_webcam = isinstance(src_handle, int)
