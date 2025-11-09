@@ -1,0 +1,15 @@
+# Core Dependencies
+opencv-python==4.10.0.84
+opencv-contrib-python==4.10.0.84
+numpy==1.24.3
+torch==2.1.0
+torchvision==0.16.0
+ultralytics==8.1.0
+
+# Additional utilities
+Pillow==10.1.0
+matplotlib==3.8.2
+scipy==1.11.4
+
+# For MCP Server simulation
+requests==2.31.0
