@@ -1,0 +1,13 @@
+# Core
+torch
+torchvision
+torchaudio
+ultralytics
+opencv-python
+numpy
+pyyaml
+tqdm
+
+# Optional (for advanced heuristics)
+mediapipe
+scikit-image
