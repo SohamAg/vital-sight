@@ -1,0 +1,47 @@
+yolo:
+  model: yolov8n.pt
+  conf: 0.35
+  iou: 0.6
+  classes: [0]   # person only for now; add others if you need (COCO IDs)
+
+runtime:
+  device: auto          # auto|cuda|cpu
+  input_size: 640
+  show_fps: true
+
+profile: webcam         # webcam|cctv
+
+logic:
+  fall:
+    v_drop: 0.12        # normalized vertical speed threshold
+    still_s: 3.0
+    debounce_f: 12
+  immobility:
+    duration_s: 25      # 25s for webcam; set 120 for CCTV
+    jitter_eps: 2.0
+  resp:
+    window_s: 18
+    rr_min: 8
+    rr_max: 30
+    irregularity_thr: 0.35
+    hand_chest_px: 45
+  violence:
+    prox_px: 80
+    flow_mag: 14.0
+    debounce_f: 10
+  fire:
+    hsv_ratio: 0.025
+    persist_f: 8
+
+pose:
+  enabled: true
+  backend: yolov8n-pose   # yolov8n-pose|mediapipe
+  max_people: 2
+  min_box_area_frac: 0.02 # 2% of frame (use 0.08 for webcam close-up)
+
+hysteresis:
+  enter: 0.55
+  exit: 0.35
+
+cooldowns:
+  per_camera_s: 45
