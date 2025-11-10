@@ -16,11 +16,7 @@ VitalSight is an intelligent surveillance system that combines cutting-edge comp
 - **Severe Injury**: Identifies traumatic injuries requiring immediate medical response
 
 ### 🤖 **AI-Powered Situation Analysis**
-<<<<<<< HEAD
-- **Google Gemini 2.0 Flash (Experimental)**: Generates detailed, context-aware incident reports
-=======
 - **Google Gemini 2.5 Flash Integration**: Generates detailed, context-aware incident reports
->>>>>>> f0c05c63b491014ee112444cd38f9bf3186448a0
 - **Vision Language Model (VLM)**: Analyzes video frames to provide human-readable situation assessments
 - **Priority Classification**: Automatically categorizes incidents (LOW, MEDIUM, HIGH, CRITICAL)
 - **Actionable Recommendations**: Each report includes specific response protocols
