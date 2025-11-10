@@ -26,6 +26,7 @@ google-generativeai>=0.3.0   # Gemini 2.0 Flash for situation analysis
 flask>=3.0.0                 # Web application backend
 markdown>=3.5.0              # Report rendering
 
-# === Notifications (for voice call alerts) ===
+# === Notifications (for voice call + email alerts) ===
 twilio>=8.0.0                # Voice call notifications via Twilio
 elevenlabs>=1.0.0            # Text-to-speech for voice alerts
+sendgrid>=6.10.0             # Email notifications via SendGrid

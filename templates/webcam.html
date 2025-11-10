@@ -21,8 +21,8 @@
         <!-- Webcam Feed -->
         <div class="glass rounded-xl overflow-hidden">
             <div class="relative bg-black aspect-video flex items-center justify-center">
-                <video id="webcam" autoplay playsinline class="w-full h-full object-cover hidden"></video>
-                <canvas id="canvas" class="w-full h-full object-cover hidden"></canvas>
+                <!-- MJPEG Stream for YOLO Annotated Frames -->
+                <img id="webcamStream" src="" class="w-full h-full object-cover hidden" />
                 
                 <!-- Placeholder -->
                 <div id="placeholder" class="text-center p-12">
@@ -72,17 +72,6 @@
                             </svg>
                             <span>Stop Monitoring</span>
                         </button>
-                        
-                        <button id="captureBtn" onclick="captureFrame()" disabled
-                                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium
-                                       transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-                                       flex items-center gap-2 hidden">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
-                            </svg>
-                            <span>Capture</span>
-                        </button>
                     </div>
                     
                     <div class="text-sm text-gray-400">
@@ -94,14 +83,46 @@
         
         <!-- Info Card -->
         <div class="glass rounded-lg p-4 text-sm text-gray-400">
-            <p><strong class="text-gray-300">Note:</strong> Webcam analysis runs in your browser. 
-            VitalSight detection will automatically analyze each frame for emergency situations. 
-            Detected events will appear in the alerts panel.</p>
+            <p><strong class="text-gray-300">🤖 Hybrid Detection System:</strong> Every 60 frames (~2 seconds), <strong>Google Gemini Vision AI</strong> classifies what it sees (fall, distress, or none). 
+            This classification boosts the <strong>YOLO + Pose detection</strong> scores, which then go through debouncing. 
+            When a detection is confirmed, <strong>Gemini generates a full report</strong> and sends email/call notifications.</p>
         </div>
     </div>
     
     <!-- Right Side: Detections Panel (1/3 width) -->
     <div class="col-span-1 space-y-4">
+        <!-- Latest Report Card -->
+        <div id="reportCard" class="glass rounded-lg p-4 hidden">
+            <h3 class="text-lg font-bold mb-3 flex items-center gap-2">
+                <span>📋</span>
+                <span>Detection Report</span>
+            </h3>
+            <div id="reportContent" class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-400">Category:</span>
+                    <span id="reportCategory" class="font-medium px-2 py-1 rounded text-sm"></span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-400">Confidence:</span>
+                    <span id="reportConfidence" class="font-medium"></span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-400">Time:</span>
+                    <span id="reportTime" class="font-medium text-sm"></span>
+                </div>
+                <div class="border-t border-gray-700 pt-3 mt-3">
+                    <div id="reportText" class="text-sm text-gray-300 prose prose-invert max-w-none" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+                <div class="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/>
+                        <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/>
+                    </svg>
+                    <span>Email notification sent</span>
+                </div>
+            </div>
+        </div>
+        
         <div class="glass rounded-lg p-4">
             <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
                 <span>🔔</span>
@@ -136,38 +157,57 @@
 </div>
 
 <script>
-    let webcamStream = null;
     let isMonitoring = false;
     let detectionCount = 0;
-    let frameCount = 0;
-    let lastFpsUpdate = Date.now();
+    let statsInterval = null;
+    let lastDetections = {};
     
     async function startWebcam() {
         try {
-            // Request webcam access
-            webcamStream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
+            // Call backend to initialize detection
+            const response = await fetch('/api/webcam/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
                 }
             });
             
-            // Set up video element
-            const video = document.getElementById('webcam');
-            video.srcObject = webcamStream;
+            const data = await response.json();
             
-            // Hide placeholder, show video
+            if (!data.success) {
+                alert('Failed to start webcam detection: ' + data.error);
+                return;
+            }
+            
+            // Hide placeholder, show stream
             document.getElementById('placeholder').classList.add('hidden');
-            video.classList.remove('hidden');
-            document.getElementById('fpsCounter').classList.remove('hidden');
+            const streamImg = document.getElementById('webcamStream');
+            streamImg.src = '/api/webcam/stream?' + Date.now(); // Add timestamp to prevent caching
+            streamImg.classList.remove('hidden');
             document.getElementById('liveBadge').classList.remove('hidden');
+            
+            // Reset detection state on start
+            lastDetections = {};
+            detectionCount = 0;
+            document.getElementById('activeCount').textContent = '0';
+            document.getElementById('totalCount').textContent = '0';
+            
+            // Clear previous detections
+            const list = document.getElementById('detectionList');
+            while (list.firstChild) {
+                list.removeChild(list.firstChild);
+            }
+            // Re-add empty state
+            const emptyState = document.getElementById('emptyState');
+            if (emptyState) {
+                emptyState.classList.remove('hidden');
+                list.appendChild(emptyState);
+            }
             
             // Update buttons
             document.getElementById('startBtn').classList.add('hidden');
             document.getElementById('stopBtn').classList.remove('hidden');
             document.getElementById('stopBtn').disabled = false;
-            document.getElementById('captureBtn').classList.remove('hidden');
-            document.getElementById('captureBtn').disabled = false;
             
             // Update status
             document.getElementById('status').textContent = 'Monitoring';
@@ -176,130 +216,206 @@
             
             isMonitoring = true;
             
-            // Start processing frames
-            processFrames();
+            // Start polling for stats
+            startStatsPolling();
             
         } catch (error) {
-            console.error('Error accessing webcam:', error);
-            alert('Could not access webcam. Please ensure you have granted camera permissions.');
+            console.error('Error starting webcam:', error);
+            alert('Could not start webcam detection. Please check console for details.');
         }
     }
     
-    function stopWebcam() {
-        if (webcamStream) {
-            webcamStream.getTracks().forEach(track => track.stop());
-            webcamStream = null;
+    async function stopWebcam() {
+        try {
+            // Stop backend detection
+            await fetch('/api/webcam/stop', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            isMonitoring = false;
+            
+            // Stop stats polling
+            if (statsInterval) {
+                clearInterval(statsInterval);
+                statsInterval = null;
+            }
+            
+            // Reset detection state
+            lastDetections = {};
+            detectionCount = 0;
+            document.getElementById('activeCount').textContent = '0';
+            document.getElementById('totalCount').textContent = '0';
+            
+            // Clear detection list
+            const list = document.getElementById('detectionList');
+            while (list.firstChild) {
+                list.removeChild(list.firstChild);
+            }
+            // Re-add empty state
+            document.getElementById('emptyState').classList.remove('hidden');
+            list.appendChild(document.getElementById('emptyState'));
+            
+            // Hide report card
+            document.getElementById('reportCard').classList.add('hidden');
+            
+            // Reset UI
+            const streamImg = document.getElementById('webcamStream');
+            streamImg.src = '';
+            streamImg.classList.add('hidden');
+            document.getElementById('placeholder').classList.remove('hidden');
+            document.getElementById('liveBadge').classList.add('hidden');
+            
+            // Update buttons
+            document.getElementById('startBtn').classList.remove('hidden');
+            document.getElementById('stopBtn').classList.add('hidden');
+            
+            // Update status
+            document.getElementById('status').textContent = 'Idle';
+            document.getElementById('status').className = 'font-medium text-gray-400';
+            document.getElementById('liveIndicator').className = 'relative inline-flex rounded-full h-3 w-3 bg-gray-500';
+            
+        } catch (error) {
+            console.error('Error stopping webcam:', error);
         }
-        
-        isMonitoring = false;
-        
-        // Reset UI
-        const video = document.getElementById('webcam');
-        video.srcObject = null;
-        video.classList.add('hidden');
-        document.getElementById('placeholder').classList.remove('hidden');
-        document.getElementById('fpsCounter').classList.add('hidden');
-        document.getElementById('liveBadge').classList.add('hidden');
-        
-        // Update buttons
-        document.getElementById('startBtn').classList.remove('hidden');
-        document.getElementById('stopBtn').classList.add('hidden');
-        document.getElementById('captureBtn').classList.add('hidden');
-        
-        // Update status
-        document.getElementById('status').textContent = 'Idle';
-        document.getElementById('status').className = 'font-medium text-gray-400';
-        document.getElementById('liveIndicator').className = 'relative inline-flex rounded-full h-3 w-3 bg-gray-500';
     }
     
-    function processFrames() {
+    function startStatsPolling() {
+        // Poll stats every 500ms
+        statsInterval = setInterval(updateStats, 500);
+    }
+    
+    async function updateStats() {
         if (!isMonitoring) return;
         
-        frameCount++;
-        
-        // Update FPS
-        const now = Date.now();
-        if (now - lastFpsUpdate >= 1000) {
-            document.getElementById('fps').textContent = frameCount;
-            frameCount = 0;
-            lastFpsUpdate = now;
+        try {
+            const response = await fetch('/api/webcam/stats');
+            const stats = await response.json();
+            
+            if (!stats.active) {
+                stopWebcam();
+                return;
+            }
+            
+            // Update people count
+            const peopleCount = stats.people_count || 0;
+            document.getElementById('activeCount').textContent = peopleCount;
+            
+            // Check for new detections
+            if (stats.detections) {
+                checkForNewDetections(stats.detections);
+            }
+            
+            // Display latest report if available
+            if (stats.latest_report) {
+                displayReport(stats.latest_report);
+            }
+            
+        } catch (error) {
+            console.error('Error fetching stats:', error);
         }
-        
-        // Simulate detection (in real implementation, this would call the detection API)
-        // For demo purposes, randomly generate detections
-        if (Math.random() < 0.01) { // 1% chance per frame
-            simulateDetection();
-        }
-        
-        requestAnimationFrame(processFrames);
     }
     
-    function captureFrame() {
-        const video = document.getElementById('webcam');
-        const canvas = document.getElementById('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+    function displayReport(report) {
+        const reportCard = document.getElementById('reportCard');
+        const reportCategory = document.getElementById('reportCategory');
+        const reportConfidence = document.getElementById('reportConfidence');
+        const reportTime = document.getElementById('reportTime');
+        const reportText = document.getElementById('reportText');
         
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0);
+        // Show report card
+        reportCard.classList.remove('hidden');
         
-        // Convert to blob and download
-        canvas.toBlob((blob) => {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `capture_${Date.now()}.jpg`;
-            a.click();
-            URL.revokeObjectURL(url);
-        });
+        // Set category with color
+        const categoryColors = {
+            'fall': 'bg-low text-white',
+            'distress': 'bg-high text-white'
+        };
+        const colorClass = categoryColors[report.category] || 'bg-medium text-white';
+        reportCategory.className = `font-medium px-2 py-1 rounded text-sm ${colorClass}`;
+        reportCategory.textContent = report.category.toUpperCase();
         
-        // Show feedback
-        canvas.classList.remove('hidden');
-        setTimeout(() => {
-            canvas.classList.add('hidden');
-        }, 200);
+        // Set confidence
+        reportConfidence.textContent = Math.round(report.confidence * 100) + '%';
+        
+        // Set time
+        reportTime.textContent = report.timestamp;
+        
+        // Set report text with proper formatting
+        // Convert markdown-style headers to HTML
+        let formattedReport = report.report_text
+            .replace(/## (.*?)(\n|$)/g, '<strong style="display:block;margin-top:12px;margin-bottom:6px;color:#fff;">$1</strong>')
+            .replace(/\n\n/g, '<br><br>')
+            .replace(/\n/g, '<br>');
+        
+        reportText.innerHTML = formattedReport;
     }
     
-    function simulateDetection() {
-        const types = [
-            { name: 'Fall', severity: 'MEDIUM', icon: '🤕' },
-            { name: 'Fire', severity: 'CRITICAL', icon: '🔥' },
-            { name: 'Distress', severity: 'CRITICAL', icon: '😰' },
-            { name: 'Violence', severity: 'MEDIUM', icon: '⚠️' }
-        ];
+    function checkForNewDetections(detections) {
+        // Map detection types to UI display
+        const detectionMap = {
+            'fall': { name: 'Fall', severity: 'LOW', icon: '🤕' },
+            'distress': { name: 'Distress', severity: 'HIGH', icon: '😰' },
+            'violence_panic': { name: 'Violence/Crowd', severity: 'MEDIUM', icon: '⚠️' },
+            'severe_injury': { name: 'Severe Injury', severity: 'CRITICAL', icon: '🩹' },
+            'fire': { name: 'Fire', severity: 'CRITICAL', icon: '🔥' }
+        };
         
-        const detection = types[Math.floor(Math.random() * types.length)];
-        addDetection(detection);
+        // Check all detection types
+        for (const [type, config] of Object.entries(detectionMap)) {
+            if (detections[type] && !lastDetections[type]) {
+                // New detection!
+                addDetection({
+                    name: config.name,
+                    severity: config.severity,
+                    icon: config.icon,
+                    confidence: Math.round(detections[type] * 100)
+                });
+                detectionCount++;
+                document.getElementById('totalCount').textContent = detectionCount;
+            }
+        }
+        
+        lastDetections = {...detections};
     }
     
     function addDetection(detection) {
-        detectionCount++;
-        
-        // Update counts
-        document.getElementById('activeCount').textContent = '1';
-        document.getElementById('totalCount').textContent = detectionCount;
-        
         // Hide empty state
         document.getElementById('emptyState').classList.add('hidden');
         
         // Add detection to list
         const list = document.getElementById('detectionList');
         const item = document.createElement('div');
-        item.className = `p-3 rounded-lg ${
-            detection.severity === 'CRITICAL' 
-                ? 'bg-critical/10 border border-critical/30' 
-                : 'bg-medium/10 border border-medium/30'
-        } animate-pulse`;
+        
+        const severityColors = {
+            'LOW': 'bg-low/10 border border-low/30 text-low',
+            'MEDIUM': 'bg-medium/10 border border-medium/30 text-medium',
+            'HIGH': 'bg-high/10 border border-high/30 text-high',
+            'CRITICAL': 'bg-critical/10 border border-critical/30 text-critical'
+        };
+        
+        const colorClass = severityColors[detection.severity] || severityColors['MEDIUM'];
+        const [bgClass, textClass] = colorClass.split(' text-');
+        
+        item.className = `p-3 rounded-lg ${bgClass} animate-pulse`;
         
         item.innerHTML = `
             <div class="flex items-center justify-between mb-2">
                 <span class="text-lg">${detection.icon}</span>
-                <span class="text-xs ${
-                    detection.severity === 'CRITICAL' ? 'text-critical' : 'text-medium'
-                } font-medium">${detection.severity}</span>
+                <span class="text-xs text-${textClass} font-medium">${detection.severity}</span>
             </div>
             <p class="font-medium mb-1">${detection.name} Detected</p>
             <p class="text-xs text-gray-400">${new Date().toLocaleTimeString()}</p>
+            ${detection.confidence ? `<p class="text-xs text-gray-500 mt-1">Confidence: ${detection.confidence}%</p>` : ''}
+            <div class="mt-2 text-xs text-gray-400 flex items-center gap-1">
+                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/>
+                    <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/>
+                </svg>
+                <span>Email notification sent</span>
+            </div>
         `;
         
         list.insertBefore(item, list.firstChild);
@@ -314,6 +430,13 @@
             list.removeChild(list.lastChild);
         }
     }
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+        if (isMonitoring) {
+            stopWebcam();
+        }
+    });
 </script>
 {% endblock %}
 

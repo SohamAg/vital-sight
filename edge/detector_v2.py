@@ -648,7 +648,7 @@ class VitalSightV2:
                         print(f"[ERROR] Failed to start report generation: {e}")
                         self.first_detections[category]["reported"] = True
     
-    def process(self, source=0, display=True, save_output=False, output_path=None, frame_callback=None):
+    def process(self, source=0, display=True, save_output=False, output_path=None, frame_callback=None, gemini_boost_callback=None):
         if isinstance(source, str) and source.isdigit():
             src_handle = int(source)
         else:
@@ -658,6 +658,9 @@ class VitalSightV2:
         if not cap.isOpened():
             print("[ERROR] cannot open source:", source)
             return
+        
+        # Store gemini callback
+        self.gemini_boost_callback = gemini_boost_callback
         
         # Store source path for Gemini reporting
         self.source_path = source if isinstance(source, str) else None
@@ -879,6 +882,16 @@ class VitalSightV2:
             
             # Clamp all scores
             scores = {k: min(1.0, v) for k, v in scores.items()}
+            
+            # Apply Gemini prediction boost (for webcam mode)
+            if hasattr(self, 'gemini_boost_callback') and self.gemini_boost_callback:
+                try:
+                    gemini_category = self.gemini_boost_callback()
+                    if gemini_category and gemini_category in scores:
+                        print(f"[GEMINI BOOST] Boosting {gemini_category} score: {scores[gemini_category]:.2f} → 0.95")
+                        scores[gemini_category] = 0.95  # Boost to high confidence
+                except Exception as e:
+                    print(f"[WARNING] Gemini boost callback error: {e}")
 
             active = []
             for k, v in scores.items():
@@ -1030,7 +1043,15 @@ class VitalSightV2:
             if frame_callback is not None:
                 try:
                     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-                    frame_callback(annotated, frame_id, total_frames)
+                    # Pass comprehensive frame data
+                    frame_data = {
+                        'annotated_frame': annotated,
+                        'frame_id': frame_id,
+                        'total_frames': total_frames,
+                        'people_count': len(person_boxes),
+                        'active_detections': {k: v for k, v in active}  # Convert list of tuples to dict
+                    }
+                    frame_callback(frame_data)
                 except Exception as e:
                     print(f"[WARNING] Frame callback error: {e}")
 

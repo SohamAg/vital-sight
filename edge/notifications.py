@@ -1,11 +1,14 @@
 """
-Notification Service - Voice call alerts using Twilio + ElevenLabs
+Notification Service - Voice call alerts using Twilio + ElevenLabs + Email via SendGrid
 """
 import os
 import tempfile
 from pathlib import Path
 from twilio.rest import Client
 from elevenlabs.client import ElevenLabs
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType, Disposition, ContentId
+import base64
 
 
 class NotificationService:
@@ -16,7 +19,10 @@ class NotificationService:
                  twilio_auth_token=None,
                  twilio_phone_number=None,
                  alert_phone_number=None,
-                 elevenlabs_api_key=None):
+                 elevenlabs_api_key=None,
+                 alert_email=None,
+                 sendgrid_api_key=None,
+                 from_email=None):
         """
         Initialize notification service.
         
@@ -26,22 +32,28 @@ class NotificationService:
             twilio_phone_number: Your Twilio phone number (e.g., '+18663508040')
             alert_phone_number: Phone number to call for alerts (e.g., '+19297602752')
             elevenlabs_api_key: ElevenLabs API key for text-to-speech
+            alert_email: Email address to send alerts to
+            sendgrid_api_key: SendGrid API key for email
+            from_email: Sender email address (verified in SendGrid)
         """
         self.enabled = False
         self.alert_phone = alert_phone_number
+        self.alert_email = alert_email
+        self.from_email = from_email or alert_email  # Default to alert_email if not specified
+        self.email_enabled = False
         
-        # Initialize Twilio
+        # Initialize Twilio (optional - for voice calls)
+        self.twilio_enabled = False
         if twilio_account_sid and twilio_auth_token and twilio_phone_number:
             try:
                 self.twilio_client = Client(twilio_account_sid, twilio_auth_token)
                 self.twilio_phone = twilio_phone_number
+                self.twilio_enabled = True
                 print("[INFO] Twilio voice calls enabled")
             except Exception as e:
                 print(f"[WARNING] Twilio initialization failed: {e}")
-                return
         else:
             print("[WARNING] Twilio credentials not provided, voice calls disabled")
-            return
         
         # Initialize ElevenLabs
         if elevenlabs_api_key:
@@ -50,10 +62,20 @@ class NotificationService:
                 print("[INFO] ElevenLabs text-to-speech enabled")
             except Exception as e:
                 print(f"[WARNING] ElevenLabs initialization failed: {e}")
-                return
+                # Don't return, email can still work
         else:
             print("[WARNING] ElevenLabs API key not provided, TTS disabled")
-            return
+        
+        # Initialize SendGrid Email
+        if alert_email and sendgrid_api_key:
+            try:
+                self.sendgrid_client = SendGridAPIClient(sendgrid_api_key)
+                self.email_enabled = True
+                print(f"[INFO] SendGrid email notifications enabled - will send to: {alert_email}")
+            except Exception as e:
+                print(f"[WARNING] SendGrid initialization failed: {e}")
+        else:
+            print("[WARNING] SendGrid API key or alert email not configured")
         
         # Priority configuration
         self.priority_config = {
@@ -64,48 +86,68 @@ class NotificationService:
             "fire": {"priority": "CRITICAL", "needs_call": True}
         }
         
-        if self.alert_phone:
+        # Set enabled if we have either email or voice calls working
+        if self.email_enabled or (self.twilio_enabled and self.alert_phone):
             self.enabled = True
-            print(f"[INFO] Voice alerts will be sent to: {self.alert_phone}")
+            if self.alert_phone and self.twilio_enabled:
+                print(f"[INFO] Voice alerts will be sent to: {self.alert_phone}")
         else:
-            print("[WARNING] No alert phone number configured")
+            print("[WARNING] No notification services configured")
     
-    def send_alert(self, category, report_text, source_path=None):
+    def send_alert(self, category, report_text, source_path=None, frame_path=None, confidence=None, timestamp=None):
         """
-        Send voice call alert for CRITICAL situations.
+        Send alert notifications (email always, voice call for HIGH/CRITICAL).
         
         Args:
             category: Detection category (fall, fire, etc.)
             report_text: Full Gemini report text
             source_path: Source video/camera identifier
+            frame_path: Path to evidence frame image
+            confidence: Detection confidence score
+            timestamp: Detection timestamp
         
         Returns:
-            dict with status of the call
+            dict with status of email and call
         """
-        if not self.enabled:
-            return {"call": False, "reason": "Service not enabled"}
-        
         config = self.priority_config.get(category, {"priority": "MEDIUM", "needs_call": False})
+        results = {"email": False, "call": False}
         
-        # Only make calls for HIGH/CRITICAL priority
-        if not config['needs_call']:
-            print(f"[INFO] {category} is {config['priority']} priority - no voice call needed")
-            return {"call": False, "reason": "Priority level does not require call"}
-        
-        print(f"\n[CRITICAL ALERT] Initiating voice call for {category}...")
-        
-        # Extract brief summary (first 2-3 lines for voice call)
+        # Extract brief summary (for voice call)
         brief_summary = self._extract_brief_summary(report_text)
         
-        # Make voice call
-        result = self._make_voice_call(
-            category=category,
-            priority=config['priority'],
-            brief_summary=brief_summary,
-            source_path=source_path
-        )
+        # ALWAYS send email for ALL detections
+        if self.email_enabled and self.alert_email:
+            print(f"[EMAIL] Sending alert email for {category}...")
+            results["email"] = self._send_email(
+                category=category,
+                priority=config['priority'],
+                report_text=report_text,
+                source_path=source_path,
+                frame_path=frame_path,
+                confidence=confidence,
+                timestamp=timestamp
+            )
+        else:
+            print("[WARNING] Email not configured, skipping email notification")
         
-        return result
+        # Make voice call ONLY for HIGH/CRITICAL priority (if Twilio is configured)
+        if config['needs_call'] and self.twilio_enabled and self.alert_phone:
+            print(f"\n[CRITICAL ALERT] Initiating voice call for {category}...")
+            call_result = self._make_voice_call(
+                category=category,
+                priority=config['priority'],
+                brief_summary=brief_summary,
+                source_path=source_path
+            )
+            results["call"] = call_result.get("call", False)
+            if "call_sid" in call_result:
+                results["call_sid"] = call_result["call_sid"]
+        elif config['needs_call'] and not self.twilio_enabled:
+            print(f"[INFO] Voice call needed for {category} but Twilio not configured")
+        else:
+            print(f"[INFO] {category} is {config['priority']} priority - no voice call needed")
+        
+        return results
     
     def _extract_brief_summary(self, report_text):
         """Extract first 2-3 sentences for voice call"""
@@ -139,6 +181,126 @@ class NotificationService:
             summary = summary[:497] + "..."
         
         return summary
+    
+    def _send_email(self, category, priority, report_text, source_path, frame_path=None, confidence=None, timestamp=None):
+        """Send email notification with detailed report and evidence image using SendGrid"""
+        try:
+            # Priority emoji based on level
+            priority_emoji = {
+                "LOW": "🟢",
+                "MEDIUM": "🟡",
+                "HIGH": "🟠",
+                "CRITICAL": "🔴"
+            }.get(priority, "🔵")
+            
+            # Create HTML body
+            html_content = f"""
+            <html>
+                <head>
+                    <style>
+                        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                        .container {{ max-width: 800px; margin: 0 auto; padding: 20px; }}
+                        .header {{ background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); 
+                                  color: white; padding: 20px; border-radius: 10px 10px 0 0; }}
+                        .alert-badge {{ background: rgba(255,255,255,0.2); padding: 10px 20px; 
+                                       border-radius: 20px; display: inline-block; margin-top: 10px; }}
+                        .content {{ background: #f9fafb; padding: 20px; border: 2px solid #dc2626; 
+                                   border-radius: 0 0 10px 10px; }}
+                        .info-grid {{ display: grid; grid-template-columns: 150px 1fr; gap: 10px; 
+                                     margin: 20px 0; }}
+                        .info-label {{ font-weight: bold; color: #374151; }}
+                        .info-value {{ color: #1f2937; }}
+                        .report {{ background: white; padding: 20px; border-radius: 5px; 
+                                  margin: 20px 0; white-space: pre-wrap; 
+                                  border-left: 4px solid #dc2626; }}
+                        .footer {{ text-align: center; color: #6b7280; font-size: 12px; 
+                                  margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb; }}
+                        .image-container {{ text-align: center; margin: 20px 0; }}
+                        .evidence-image {{ max-width: 100%; height: auto; border-radius: 5px; 
+                                          border: 2px solid #dc2626; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h1 style="margin: 0; font-size: 28px;">⚠️ EMERGENCY ALERT</h1>
+                            <div class="alert-badge">
+                                <strong style="font-size: 20px;">{priority_emoji} {priority} PRIORITY</strong>
+                            </div>
+                        </div>
+                        
+                        <div class="content">
+                            <div class="info-grid">
+                                <div class="info-label">Alert Type:</div>
+                                <div class="info-value"><strong>{category.replace('_', ' ').title()}</strong></div>
+                                
+                                <div class="info-label">Location:</div>
+                                <div class="info-value">{source_path or 'Unknown Camera'}</div>
+                                
+                                <div class="info-label">Timestamp:</div>
+                                <div class="info-value">{timestamp or 'Just now'}</div>
+                                
+                                <div class="info-label">Confidence:</div>
+                                <div class="info-value">{f"{confidence:.1%}" if confidence else "N/A"}</div>
+                            </div>
+                            
+                            {"<div class='image-container'><img src='cid:evidence_frame' class='evidence-image' alt='Evidence Frame'/></div>" if frame_path else ""}
+                            
+                            <h2 style="color: #dc2626; margin-top: 20px;">📋 Detailed AI Analysis Report</h2>
+                            <div class="report">{report_text}</div>
+                            
+                            <div class="footer">
+                                <p><strong>VitalSight Context-Aware Environment System</strong></p>
+                                <p>This is an automated alert. Please respond according to your emergency protocols.</p>
+                                <p>Generated at {timestamp or 'now'}</p>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+            </html>
+            """
+            
+            # Create message
+            message = Mail(
+                from_email=self.from_email,
+                to_emails=self.alert_email,
+                subject=f"🚨 VitalSight Alert: {category.replace('_', ' ').title()} - {priority} Priority",
+                html_content=html_content
+            )
+            
+            # Attach evidence image if available
+            if frame_path and Path(frame_path).exists():
+                try:
+                    with open(frame_path, 'rb') as f:
+                        img_data = f.read()
+                        encoded = base64.b64encode(img_data).decode()
+                        
+                        attachment = Attachment()
+                        attachment.file_content = FileContent(encoded)
+                        attachment.file_name = FileName(Path(frame_path).name)
+                        attachment.file_type = FileType('image/jpeg')
+                        attachment.disposition = Disposition('inline')
+                        attachment.content_id = ContentId('evidence_frame')
+                        
+                        message.add_attachment(attachment)
+                except Exception as img_err:
+                    print(f"[WARNING] Could not attach image: {img_err}")
+            
+            # Send email via SendGrid
+            response = self.sendgrid_client.send(message)
+            
+            if response.status_code in [200, 202]:
+                print(f"[✓] Email sent via SendGrid to {self.alert_email}")
+                return True
+            else:
+                print(f"[ERROR] SendGrid returned status {response.status_code}")
+                return False
+            
+        except Exception as e:
+            print(f"[ERROR] SendGrid email send failed: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
     
     def _make_voice_call(self, category, priority, brief_summary, source_path):
         """Make voice call using ElevenLabs TTS + Twilio"""

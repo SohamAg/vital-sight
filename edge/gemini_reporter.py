@@ -242,18 +242,28 @@ Provide your detailed emergency response report now."""
             
             print(f"[GEMINI] ✓ Report saved to: {report_path}")
             
-            # Send voice call notification for CRITICAL situations
+            # Send notifications (email for ALL, voice call for HIGH/CRITICAL)
             if self.notification_service:
-                print(f"[NOTIFICATION] Checking if voice alert needed for {category}...")
+                print(f"[NOTIFICATION] Sending alerts for {category}...")
                 notification_result = self.notification_service.send_alert(
                     category=category,
                     report_text=report_text,
-                    source_path=source_path
+                    source_path=source_path,
+                    frame_path=frame_path,
+                    confidence=confidence,
+                    timestamp=timestamp
                 )
+                
+                # Log results
+                if notification_result.get('email'):
+                    print(f"[NOTIFICATION] ✓ Email sent successfully")
+                else:
+                    print(f"[NOTIFICATION] ✗ Email failed or not configured")
+                
                 if notification_result.get('call'):
                     print(f"[NOTIFICATION] ✓ Voice call initiated: {notification_result.get('call_sid')}")
                 else:
-                    print(f"[NOTIFICATION] Voice call not needed: {notification_result.get('reason', 'N/A')}")
+                    print(f"[NOTIFICATION] - Voice call not needed for this priority level")
             
             # Clean up uploaded file from Gemini
             try:
