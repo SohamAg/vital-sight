@@ -53,7 +53,7 @@ def login_required(f):
 PROCESSED_DIR = Path("data/processed")
 REPORTS_DIR = Path("data/demo_reports")
 UPLOAD_DIR = Path("data/uploads")
-GEMINI_KEY = "AIzaSyDPE3QNZqVino7KJvFDeZ_nfYcQ627FcMo"
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Camera Name Mapping - Maps video filenames to camera identifiers
 CAMERA_MAPPING = {

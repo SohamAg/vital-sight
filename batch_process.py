@@ -10,7 +10,7 @@ from pathlib import Path
 from edge.detector_v2 import VitalSightV2
 
 # Your API key
-DEFAULT_API_KEY = "AIzaSyDPE3QNZqVino7KJvFDeZ_nfYcQ627FcMo"
+DEFAULT_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 def find_videos(directory, exclude_dirs=None):
     """

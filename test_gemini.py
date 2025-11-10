@@ -5,7 +5,7 @@ import argparse
 from edge.detector_v2 import VitalSightV2
 
 # Your API key (you can also use --gemini-key argument or GEMINI_API_KEY env var)
-DEFAULT_API_KEY = "AIzaSyDPE3QNZqVino7KJvFDeZ_nfYcQ627FcMo"
+DEFAULT_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 def test_sample_videos():
     """Test Gemini integration with sample videos"""
