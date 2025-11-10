@@ -89,15 +89,15 @@ def get_camera_name(video_path):
 
 # Notification Service Configuration
 NOTIFICATION_CONFIG = {
-    'twilio_account_sid': os.environ.get('TWILIO_ACCOUNT_SID', 'AC9482d7139f9d9056cbdf9159f02052db'),
-    'twilio_auth_token': os.environ.get('TWILIO_AUTH_TOKEN', '5c9fd678f6689941e0cebcae6cebac35'),
-    'twilio_phone_number': os.environ.get('TWILIO_PHONE_NUMBER', '+18663508040'),
-    'alert_phone_number': os.environ.get('ALERT_PHONE_NUMBER', '+19297602752'),
-    'elevenlabs_api_key': os.environ.get('ELEVENLABS_API_KEY', 'sk_a6abdc87464e5c00d90059b302746c55d005dbe8d29c79df'),
+    'twilio_account_sid': os.environ.get('TWILIO_ACCOUNT_SID'),
+    'twilio_auth_token': os.environ.get('TWILIO_AUTH_TOKEN'),
+    'twilio_phone_number': os.environ.get('TWILIO_PHONE_NUMBER'),
+    'alert_phone_number': os.environ.get('ALERT_PHONE_NUMBER'),
+    'elevenlabs_api_key': os.environ.get('ELEVENLABS_API_KEY'),
     # SendGrid Email configuration
-    'alert_email': os.environ.get('ALERT_EMAIL', 'sohamkagrawal@gmail.com'),
-    'sendgrid_api_key': os.environ.get('SENDGRID_API_KEY', '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'),
-    'from_email': os.environ.get('FROM_EMAIL', 'sohamkagrawal@gmail.com')  # Verified sender in SendGrid
+    'alert_email': os.environ.get('ALERT_EMAIL'),
+    'sendgrid_api_key': os.environ.get('SENDGRID_API_KEY'),
+    'from_email': os.environ.get('FROM_EMAIL')  # Verified sender in SendGrid
 }
 
 # Initialize notification service
